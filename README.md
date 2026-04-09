@@ -1,9 +1,9 @@
 # whisperlivekit_gui
-A tkinter GUI for whisperlivekit
-
+A tkinter GUI for whisperlivekit 
 https://github.com/QUENTINFUXA/WHISPERLIVEKIT
 
-Implementierung mit Hilfe von Claude Code (Sonnet 4.5, Pro-Plan)
+Implemented using Claude Code (Sonnet 4.5, Pro-Plan)
+https://claude.ai 
 
 ---
 
@@ -15,19 +15,6 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python -m transcribe_app
 ```
-
-**Linux** — optional Spylls spell-checking requires system Hunspell dictionaries:
-
-```bash
-sudo apt install hunspell-en-us hunspell-de-de
-```
-
-**Ollama** (optional LLM post-processing): install and start Ollama, then select an
-Ollama model in the app settings. The app connects to `http://localhost:11434`.
-
-**LanguageTool** (optional grammar correction): requires Java 8+ on `PATH`. The
-`language_tool_python` library downloads the LanguageTool server JAR on first use
-(~200 MB, cached in `~/.cache/language_tool_python/`).
 
 ---
 
@@ -94,6 +81,19 @@ copy the single `.exe` to any Windows 10/11 machine and run it.
   a DLL (most often a torch CUDA DLL).
 - **App opens then immediately closes**: set `console=True` temporarily to read
   the startup error.
+
+**Linux** — optional Spylls spell-checking requires system Hunspell dictionaries:
+
+```bash
+sudo apt install hunspell-en-us hunspell-de-de
+```
+
+**Ollama** (optional LLM post-processing): install and start Ollama, then select an
+Ollama model in the app settings. The app connects to `http://localhost:11434`.
+
+**LanguageTool** (optional grammar correction): requires Java 8+ on `PATH`. The
+`language_tool_python` library downloads the LanguageTool server JAR on first use
+(~200 MB, cached in `~/.cache/language_tool_python/`).
 
 ### Building Windows executable via GitHub Actions
 
