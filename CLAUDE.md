@@ -4,13 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-A single-file Tkinter GUI application (`transcribe_app.py`) for live speech transcription powered by [WhisperLiveKit](https://github.com/QUENTINFUXA/WHISPERLIVEKIT). Supports English and German, with optional post-processing via Ollama, LanguageTool, or Spylls.
+A Tkinter GUI application for live speech transcription powered by [WhisperLiveKit](https://github.com/QUENTINFUXA/WHISPERLIVEKIT). Supports English and German, with optional post-processing via Ollama, LanguageTool, or Spylls.
+
+The code lives in the `transcribe_app/` package. The original single-file prototype is preserved as `transcribe_app.py`.
 
 ## Running the app
 
 ```bash
 source .venv/bin/activate
-python transcribe_app.py
+python -m transcribe_app   # new package
+python transcribe_app.py   # original single-file (still works)
 ```
 
 ## Dependencies
@@ -28,17 +31,40 @@ sudo apt install hunspell-en-us hunspell-de-de
 
 Ollama (optional, for LLM post-processing): must be running at `http://localhost:11434`.
 
+## Package layout
+
+```
+transcribe_app/
+├── __main__.py              # entry point: python -m transcribe_app
+├── config.py                # all compile-time constants (audio, languages, colour tokens, backends)
+├── settings.py              # Settings dataclass + load()/save() JSON persistence
+├── text_processing.py       # pure functions: clean, apply_commands, strip_prompt_leak, strip_ollama_junk
+├── engine.py                # EngineManager — asyncio loop, model lifecycle, audio stream
+├── correction/
+│   ├── __init__.py          # Corrector protocol + get_corrector() factory
+│   ├── ollama.py            # OllamaCorrector (async HTTP)
+│   ├── languagetool.py      # LanguageToolCorrector (lazy Java server, call close() on shutdown)
+│   └── spylls.py            # SpyllsCorrector (offline Hunspell)
+└── ui/
+    ├── theme.py             # C_*/F_* tokens, make_btn(), hoverable(), apply_ttk_style()
+    ├── main_window.py       # TranscriptionApp — view + wiring only
+    ├── mic_test.py          # MicTestWindow
+    └── dialogs/
+        ├── settings_dialog.py
+        ├── voice_style_dialog.py
+        └── system_prompt_dialog.py
+```
+
 ## Architecture
 
-The entire application lives in `transcribe_app.py`. Key design:
-
-- **Thread model**: Main thread runs Tkinter UI. A dedicated background thread hosts an `asyncio` event loop that owns `TranscriptionEngine` and `AudioProcessor` (from `whisperlivekit`). A `sounddevice` input stream callback feeds raw PCM via `asyncio.run_coroutine_threadsafe`. A `threading.Queue` bridges async transcription results back to the Tkinter main thread, polled every 50 ms.
-- **`TranscriptionApp`**: The sole class. Owns all state — recording state, the async loop/engine/processor references, accumulated transcript text, and settings.
-- **Lazy imports**: `sounddevice`, `AudioProcessor`, `TranscriptionEngine`, and `WhisperLiveKitConfig` are imported lazily (at mic-stream start) to avoid a PortAudio hang on startup.
-- **Display model**: Committed (finalised) transcript lines accumulate in the text area with normal style. The in-progress live buffer is shown in muted italics (`"buffer"` tag) and replaced on each update.
-- **Post-processing pipeline**: After WhisperLiveKit commits a segment, it optionally passes through `_apply_commands` (voice commands → markdown), then one of three correction backends: Ollama (async HTTP to local LLM), LanguageTool (via `language_tool_python`), or Spylls (offline Hunspell).
-- **Settings persistence**: Saved as JSON to `~/.config/transcribe_app/settings.json` (Linux) or `%APPDATA%\transcribe_app\settings.json` (Windows). Stores language, prompts, system prompts, Ollama models, and correction backend.
-- **GPU detection**: `torch.cuda.is_available()` at import time; selects `large-v3-turbo` (GPU) vs `medium`/`medium.en` (CPU) model.
+- **Thread model**: Tkinter main thread owns all widget access. A daemon thread runs an `asyncio` event loop that owns `EngineManager` (model + session). A `sounddevice` callback feeds raw PCM via `asyncio.run_coroutine_threadsafe`. A `queue.Queue` bridges results back to Tkinter, polled every 50 ms via `root.after`.
+- **`EngineManager`** (`engine.py`): No tkinter dependency. Communicates upward via five injected callbacks (`on_status`, `on_ready`, `on_update`, `on_finalise`, `on_open_mic`). `open_mic_stream()` must be called from the UI thread (scheduled via `root.after(0, …)`) so that `_stream` is only touched on the UI thread.
+- **`TranscriptionApp`** (`ui/main_window.py`): Owns `Settings`, `EngineManager`, corrector cache, and all display state. Dialogs receive a `Settings` copy and an `on_save(Settings)` callback — they never hold a reference to the app itself.
+- **`Settings`** (`settings.py`): Immutable dataclass replaced (not mutated) on save via `dataclasses.replace()`.
+- **Corrector caching**: `LanguageToolCorrector` and `SpyllsCorrector` are cached in `TranscriptionApp._correctors` keyed by `(backend, lang)`. `OllamaCorrector` is created fresh each call so it always reads the current settings (model name, system prompt). Call `corrector.close()` on `LanguageToolCorrector` instances at shutdown to stop the Java server.
+- **Lazy imports**: `sounddevice`, `AudioProcessor`, `TranscriptionEngine`, and `WhisperLiveKitConfig` are imported inside the background thread to avoid a PortAudio/CUDA hang on window open.
+- **Display model**: Committed (finalised) lines accumulate with normal style. The live in-progress buffer is shown in muted italics (`"buffer"` tag) and replaced on each update. After 5 s of silence during recording, `_restructure()` bakes the current text into `_session_prefix` and resets the display counters.
+- **Settings persistence**: `~/.config/transcribe_app/settings.json` (Linux) or `%APPDATA%\transcribe_app\settings.json` (Windows).
 
 ## Voice commands (spoken → markdown)
 
