@@ -39,33 +39,3 @@ def strip_prompt_leak(text: str, prompt: str) -> str:
         return text
     text = re.sub(re.escape(prompt), " ", text, flags=re.IGNORECASE)
     return re.sub(r"  +", " ", text).strip()
-
-
-# ── Ollama output cleanup ──────────────────────────────────────────────────────
-
-_OLLAMA_JUNK = re.compile(
-    r"^(?:"
-    # English preambles
-    r"here\s+is\s+(?:the\s+)?(?:corrected\s+)?(?:text|version)[^:]*:\s*|"
-    r"(?:the\s+)?(?:corrected|revised|edited)\s+(?:text|version)[^:]*:\s*|"
-    r"(?:i\s+have\s+)?(?:corrected|revised|fixed)[^:\n]*:\s*|"
-    r"(?:sure|certainly|of\s+course)[^:\n]*[:.]\s*|"
-    # German preambles
-    r"hier\s+ist\s+(?:der\s+)?(?:korrigierte\s+)?(?:text|version)[^:]*:\s*|"
-    r"(?:der\s+)?(?:korrigierte|bearbeitete|überarbeitete)\s+(?:text|version)[^:]*:\s*|"
-    r"ich\s+habe[^:\n]*(?:korrigiert|bearbeitet|überarbeitet)[^:\n]*[:.]\s*|"
-    r"(?:sicher|natürlich|gerne)[^:\n]*[:.]\s*"
-    r")+",
-    re.IGNORECASE | re.DOTALL,
-)
-
-
-def strip_ollama_junk(text: str, system_prompt: str) -> str:
-    """Remove system-prompt echo and common LLM preambles from Ollama output."""
-    if system_prompt:
-        text = re.sub(re.escape(system_prompt), "", text, flags=re.IGNORECASE).strip()
-    text = _OLLAMA_JUNK.sub("", text).strip()
-    # Strip surrounding markdown code fences the model sometimes adds
-    text = re.sub(r"^```[^\n]*\n?", "", text).strip()
-    text = re.sub(r"\n?```$",        "", text).strip()
-    return text

@@ -26,6 +26,16 @@ F_SMALL = ("TkDefaultFont",  9)
 F_LABEL = ("TkDefaultFont", 10)
 
 
+def center_on_parent(win: tk.Toplevel, parent: tk.Widget) -> None:
+    """Position *win* centered over *parent* after its geometry is known."""
+    win.update_idletasks()
+    pw = parent.winfo_rootx() + parent.winfo_width()  // 2
+    ph = parent.winfo_rooty() + parent.winfo_height() // 2
+    w  = win.winfo_width()
+    h  = win.winfo_height()
+    win.geometry(f"+{pw - w // 2}+{ph - h // 2}")
+
+
 def apply_ttk_style(root: tk.Tk) -> None:
     style = ttk.Style(root)
     style.theme_use("clam")

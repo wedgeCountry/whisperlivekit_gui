@@ -5,14 +5,12 @@ Responsibilities
 * Build and own all Tkinter widgets.
 * Hold one Settings instance; delegate persistence to settings.save().
 * Delegate engine/audio concerns to EngineManager.
-* Delegate post-processing to Corrector instances (cached for LanguageTool).
 * Bridge the asyncio → Tk thread boundary via a queue.Queue polled every 50 ms.
 
 Not responsible for
 -------------------
 * Model loading, audio streaming, asyncio event loop  →  EngineManager
 * Text cleaning / voice commands                      →  text_processing
-* Correction logic                                    →  correction.*
 """
 
 import queue
@@ -23,7 +21,6 @@ from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
 
 from transcribe_app.config import LANGUAGE_OPTS
-from ..correction import get_corrector
 from ..engine import EngineManager, loading_status
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
@@ -42,8 +39,8 @@ class TranscriptionApp:
         self.root.minsize(560, 460)
         self.root.configure(bg=C_BG)
 
-        self._settings: Settings   = settings_io.load()
-        self._recording: bool      = False
+        self._settings: Settings    = settings_io.load()
+        self._recording: bool       = False
         self._ui_queue: queue.Queue = queue.Queue()
 
         # Display state
@@ -52,10 +49,6 @@ class TranscriptionApp:
         self._absorbed_committed: str   = ""
         self._last_text_time:     float = 0.0
         self._last_display_sig:   str   = ""
-
-        # Cached correctors — LanguageTool keeps a Java server alive, so we
-        # reuse instances across calls keyed by (backend, lang).
-        self._correctors: dict = {}
 
         self._mgr = EngineManager(
             on_status=lambda msg: self._ui_queue.put(("status", msg)),
@@ -89,9 +82,6 @@ class TranscriptionApp:
         edit_menu = tk.Menu(menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
         menubar.add_cascade(label="Bearbeiten", menu=edit_menu)
         edit_menu.add_command(label="Stimme & Style Prompt…", command=self._open_voice_style)
-        edit_menu.add_command(label="System Prompt…",         command=self._open_system_prompt)
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Einstellungen…",         command=self._open_settings)
 
         # Row 0 — header
         header = tk.Frame(self.root, bg=C_HEADER)
@@ -152,7 +142,7 @@ class TranscriptionApp:
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=2, column=0, sticky="ew")
         btn_bar = tk.Frame(self.root, bg=C_BG, pady=10)
         btn_bar.grid(row=2, column=0, sticky="ew")
-        btn_bar.columnconfigure((0, 1, 2, 3, 4), weight=1)
+        btn_bar.columnconfigure((0, 1, 2, 3), weight=1)
 
         self._record_btn = make_btn(btn_bar, "⏺  Record", self._toggle_recording, primary=True)
         self._record_btn.config(state=tk.DISABLED)
@@ -160,11 +150,7 @@ class TranscriptionApp:
 
         make_btn(btn_bar, "Clear",    self._clear_text   ).grid(row=0, column=1, padx=6)
         make_btn(btn_bar, "Copy",     self._copy_text    ).grid(row=0, column=2, padx=6)
-
-        self._polish_btn = make_btn(btn_bar, "Rechtschreibkorrektur", self._postprocess_text)
-        self._polish_btn.grid(row=0, column=3, padx=6)
-
-        make_btn(btn_bar, "Test Mic", self._open_mic_test).grid(row=0, column=4, padx=(6, 12))
+        make_btn(btn_bar, "Test Mic", self._open_mic_test).grid(row=0, column=3, padx=(6, 12))
 
         # Row 3/4 — status bar
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=3, column=0, sticky="ew")
@@ -254,24 +240,6 @@ class TranscriptionApp:
                     case "finalise":
                         _, committed = msg
                         self._set_text(committed, "")
-                    case "polish_done":
-                        _, corrected = msg
-                        self._text.delete("1.0", tk.END)
-                        self._text.insert(tk.END, corrected)
-                        self._session_prefix     = corrected + "\n"
-                        self._last_raw_committed  = ""
-                        self._absorbed_committed  = ""
-                        self._last_display_sig    = ""
-                        self._last_text_time      = 0.0
-                        self._render_markdown()
-                        self._polish_btn.config(state=tk.NORMAL)
-                        self.root.config(cursor="")
-                        self._status_var.set(f"Ready  ·  {self._settings.language} model loaded")
-                    case "polish_error":
-                        _, err = msg
-                        self._status_var.set(f"Rechtschreibkorrektur fehlgeschlagen: {err}")
-                        self._polish_btn.config(state=tk.NORMAL)
-                        self.root.config(cursor="")
         except queue.Empty:
             pass
 
@@ -401,44 +369,6 @@ class TranscriptionApp:
             else f"Ready  ·  {self._settings.language} model loaded"
         ))
 
-    # ── Post-processing ────────────────────────────────────────────────────────
-
-    def _postprocess_text(self) -> None:
-        if self._recording:
-            return
-        text = self._text.get("1.0", tk.END).strip()
-        if not text:
-            return
-
-        self._polish_btn.config(state=tk.DISABLED)
-        self._status_var.set(
-            f"Rechtschreibkorrektur läuft  ({self._settings.correction_backend})…"
-        )
-        self.root.config(cursor="watch")
-
-        corrector = self._get_corrector(
-            self._settings.correction_backend, self._settings.language
-        )
-
-        async def _task() -> None:
-            try:
-                result = await corrector.correct(text)
-                self._ui_queue.put(("polish_done", result))
-            except Exception as exc:
-                self._ui_queue.put(("polish_error", str(exc)))
-
-        self._mgr.dispatch(_task())
-
-    def _get_corrector(self, backend: str, lang: str):
-        """Return a cached corrector for LanguageTool/Spylls; create fresh for Ollama."""
-        if backend in ("LanguageTool", "Spylls"):
-            key = (backend, lang)
-            if key not in self._correctors:
-                self._correctors[key] = get_corrector(backend, lang, self._settings)
-            return self._correctors[key]
-        # Ollama: create fresh so it always reads current settings (model name, system prompt)
-        return get_corrector(backend, lang, self._settings)
-
     # ── Edit menu dialogs ──────────────────────────────────────────────────────
 
     def _open_voice_style(self) -> None:
@@ -455,24 +385,6 @@ class TranscriptionApp:
 
         VoiceStyleDialog(self.root, self._settings, on_save)
 
-    def _open_system_prompt(self) -> None:
-        from .dialogs.system_prompt_dialog import SystemPromptDialog
-
-        def on_save(new: Settings) -> None:
-            self._settings = new
-            settings_io.save(self._settings)
-
-        SystemPromptDialog(self.root, self._settings, on_save)
-
-    def _open_settings(self) -> None:
-        from .dialogs.settings_dialog import SettingsDialog
-
-        def on_save(new: Settings) -> None:
-            self._settings = new
-            settings_io.save(self._settings)
-
-        SettingsDialog(self.root, self._settings, on_save)
-
     def _open_mic_test(self) -> None:
         from .mic_test import MicTestWindow
         MicTestWindow(self.root)
@@ -480,14 +392,5 @@ class TranscriptionApp:
     # ── Shutdown ───────────────────────────────────────────────────────────────
 
     def _on_close(self) -> None:
-        # Close cached LanguageTool instances (shuts down the Java server)
-        for corrector in self._correctors.values():
-            if hasattr(corrector, "close"):
-                try:
-                    corrector.close()
-                except Exception:
-                    pass
-        self._correctors.clear()
-
         self._mgr.shutdown()
         self.root.destroy()
