@@ -1,0 +1,9 @@
+asyncio
+tkinter
+httpx
+numpy
+torch
+whisperlivekit
+sounddevice
+language_tool_python
+spylls
