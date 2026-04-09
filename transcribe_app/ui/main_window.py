@@ -76,7 +76,7 @@ class TranscriptionApp:
 
         file_menu = tk.Menu(menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
         menubar.add_cascade(label="Datei", menu=file_menu)
-        file_menu.add_command(label="Speichern…", command=self._save_file)
+        file_menu.add_command(label="Save as file…", command=self._save_file)
         file_menu.add_command(label="Laden…",     command=self._load_file)
 
         edit_menu = tk.Menu(menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
@@ -126,8 +126,10 @@ class TranscriptionApp:
             insertbackground=C_TEXT,
             selectbackground=C_ACCENT, selectforeground="#ffffff",
             relief=tk.FLAT, bd=0, padx=14, pady=12,
+            undo=True,
         )
         self._text.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
+        self._text.bind("<Control-a>", self._select_all)
         self._text.tag_configure("buffer",    foreground=C_BUFFER,
                                               font=("TkFixedFont", 11, "italic"))
         self._text.tag_configure("h1",        font=("TkDefaultFont", 17, "bold"),
@@ -142,15 +144,21 @@ class TranscriptionApp:
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=2, column=0, sticky="ew")
         btn_bar = tk.Frame(self.root, bg=C_BG, pady=10)
         btn_bar.grid(row=2, column=0, sticky="ew")
-        btn_bar.columnconfigure((0, 1, 2, 3), weight=1)
+        btn_bar.columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
 
         self._record_btn = make_btn(btn_bar, "⏺  Record", self._toggle_recording, primary=True)
         self._record_btn.config(state=tk.DISABLED)
         self._record_btn.grid(row=0, column=0, padx=(12, 6))
 
         make_btn(btn_bar, "Clear",    self._clear_text   ).grid(row=0, column=1, padx=6)
-        make_btn(btn_bar, "Copy",     self._copy_text    ).grid(row=0, column=2, padx=6)
-        make_btn(btn_bar, "Test Mic", self._open_mic_test).grid(row=0, column=3, padx=(6, 12))
+
+        self._undo_btn = make_btn(btn_bar, "Undo", self._undo)
+        self._undo_btn.grid(row=0, column=2, padx=6)
+        self._redo_btn = make_btn(btn_bar, "Redo", self._redo)
+        self._redo_btn.grid(row=0, column=3, padx=6)
+
+        make_btn(btn_bar, "Copy",     self._copy_text    ).grid(row=0, column=4, padx=6)
+        make_btn(btn_bar, "Test Mic", self._open_mic_test).grid(row=0, column=5, padx=(6, 12))
 
         # Row 3/4 — status bar
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=3, column=0, sticky="ew")
@@ -202,6 +210,10 @@ class TranscriptionApp:
         )
         hoverable(self._record_btn, C_DANGER, C_DANGER_H)
         self._status_var.set("Recording…")
+        self._text.config(state=tk.DISABLED)
+        self._text.edit_reset()
+        self._undo_btn.config(state=tk.DISABLED)
+        self._redo_btn.config(state=tk.DISABLED)
 
         existing = self._text.get("1.0", tk.END).rstrip("\n")
         self._session_prefix     = (existing + "\n") if existing else ""
@@ -220,6 +232,10 @@ class TranscriptionApp:
         )
         hoverable(self._record_btn, C_ACCENT, C_ACCENT_H)
         self._status_var.set("Processing remaining audio…")
+        self._text.config(state=tk.NORMAL)
+        self._text.edit_reset()
+        self._undo_btn.config(state=tk.NORMAL)
+        self._redo_btn.config(state=tk.NORMAL)
         self._mgr.stop_session()
 
     # ── UI queue polling ───────────────────────────────────────────────────────
@@ -253,6 +269,17 @@ class TranscriptionApp:
 
         self.root.after(50, self._poll_ui)
 
+    # ── Text area helpers ──────────────────────────────────────────────────────
+
+    def _begin_write(self) -> None:
+        """Temporarily re-enable the text widget for a programmatic update."""
+        self._text.config(state=tk.NORMAL)
+
+    def _end_write(self) -> None:
+        """Re-disable the text widget if recording is active."""
+        if self._recording:
+            self._text.config(state=tk.DISABLED)
+
     # ── Text display ───────────────────────────────────────────────────────────
 
     def _set_text(self, committed: str, buffer: str) -> None:
@@ -274,6 +301,7 @@ class TranscriptionApp:
             self._last_display_sig = sig
             self._last_text_time   = time.monotonic()
 
+        self._begin_write()
         self._text.delete("1.0", tk.END)
         if self._session_prefix:
             self._text.insert(tk.END, self._session_prefix)
@@ -283,6 +311,7 @@ class TranscriptionApp:
             self._text.insert(tk.END, (" " if display_committed else "") + display_buffer, "buffer")
         self._render_markdown()
         self._text.see(tk.END)
+        self._end_write()
 
     def _restructure(self) -> None:
         """Apply clean + apply_commands to the whole text area after a silence pause."""
@@ -296,10 +325,12 @@ class TranscriptionApp:
         self._last_text_time     = 0.0
         self._last_display_sig   = ""
 
+        self._begin_write()
         self._text.delete("1.0", tk.END)
         self._text.insert(tk.END, self._session_prefix)
         self._render_markdown()
         self._text.see(tk.END)
+        self._end_write()
 
     def _render_markdown(self) -> None:
         for tag in ("h1", "h2", "h3", "para_space"):
@@ -316,8 +347,28 @@ class TranscriptionApp:
 
     # ── Text area actions ──────────────────────────────────────────────────────
 
+    def _select_all(self, _event=None):
+        self._text.tag_add(tk.SEL, "1.0", tk.END)
+        self._text.mark_set(tk.INSERT, "1.0")
+        self._text.see(tk.INSERT)
+        return "break"
+
+    def _undo(self) -> None:
+        try:
+            self._text.edit_undo()
+        except tk.TclError:
+            pass
+
+    def _redo(self) -> None:
+        try:
+            self._text.edit_redo()
+        except tk.TclError:
+            pass
+
     def _clear_text(self) -> None:
+        self._begin_write()
         self._text.delete("1.0", tk.END)
+        self._end_write()
 
     def _copy_text(self) -> None:
         content = self._text.get("1.0", tk.END).strip()
@@ -355,8 +406,10 @@ class TranscriptionApp:
         if not path:
             return
         text = Path(path).read_text(encoding="utf-8")
+        self._begin_write()
         self._text.delete("1.0", tk.END)
         self._text.insert(tk.END, text)
+        self._end_write()
         self._session_prefix     = text
         self._last_raw_committed  = ""
         self._absorbed_committed  = ""
