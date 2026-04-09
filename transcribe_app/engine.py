@@ -18,7 +18,7 @@ from typing import Callable
 
 import numpy as np
 
-from config import CHUNK_SECONDS, CHANNELS, DTYPE, GPU, LANGUAGE_OPTS, SAMPLE_RATE
+from transcribe_app.config import CHUNK_SECONDS, CHANNELS, DTYPE, GPU, LANGUAGE_OPTS, SAMPLE_RATE
 
 # WhisperLiveKit types are imported lazily inside the background thread so that
 # PortAudio / CUDA initialisation does not block the Tk window from opening.
