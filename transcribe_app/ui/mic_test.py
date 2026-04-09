@@ -5,7 +5,7 @@ import numpy as np
 
 from .theme import (
     C_BG, C_SURFACE, C_BORDER, C_TEXT, C_MUTED,
-    C_ACCENT, C_ACCENT_H, F_SMALL,
+    C_ACCENT, C_ACCENT_H, F_SMALL, center_on_parent,
 )
 from transcribe_app.config import CHANNELS, DTYPE, SAMPLE_RATE
 
@@ -29,6 +29,7 @@ class MicTestWindow:
         self._win.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
+        center_on_parent(self._win, parent)
         self._start_stream()
         self._animate()
 
