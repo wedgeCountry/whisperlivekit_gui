@@ -310,8 +310,8 @@ class TranscriptionApp:
         if display_buffer:
             self._text.insert(tk.END, (" " if display_committed else "") + display_buffer, "buffer")
         self._render_markdown()
-        self._text.see(tk.END)
         self._end_write()
+        self._text.see(tk.END)
 
     def _restructure(self) -> None:
         """Apply clean + apply_commands to the whole text area after a silence pause."""
@@ -329,8 +329,8 @@ class TranscriptionApp:
         self._text.delete("1.0", tk.END)
         self._text.insert(tk.END, self._session_prefix)
         self._render_markdown()
-        self._text.see(tk.END)
         self._end_write()
+        self._text.see(tk.END)
 
     def _render_markdown(self) -> None:
         for tag in ("h1", "h2", "h3", "para_space"):
