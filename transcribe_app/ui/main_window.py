@@ -147,21 +147,15 @@ class TranscriptionApp:
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=2, column=0, sticky="ew")
         btn_bar = tk.Frame(self.root, bg=C_BG, pady=10)
         btn_bar.grid(row=2, column=0, sticky="ew")
-        btn_bar.columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+        btn_bar.columnconfigure((0, 1, 2, 3), weight=1)
 
         self._record_btn = make_btn(btn_bar, "⏺  Record", self._toggle_recording, primary=True)
         self._record_btn.config(state=tk.DISABLED)
         self._record_btn.grid(row=0, column=0, padx=(12, 6))
 
         make_btn(btn_bar, "Clear",    self._clear_text   ).grid(row=0, column=1, padx=6)
-
-        self._undo_btn = make_btn(btn_bar, "Undo", self._undo)
-        self._undo_btn.grid(row=0, column=2, padx=6)
-        self._redo_btn = make_btn(btn_bar, "Redo", self._redo)
-        self._redo_btn.grid(row=0, column=3, padx=6)
-
-        make_btn(btn_bar, "Copy",     self._copy_text    ).grid(row=0, column=4, padx=6)
-        make_btn(btn_bar, "Test Mic", self._open_mic_test).grid(row=0, column=5, padx=(6, 12))
+        make_btn(btn_bar, "Copy",     self._copy_text    ).grid(row=0, column=2, padx=6)
+        make_btn(btn_bar, "Test Mic", self._open_mic_test).grid(row=0, column=3, padx=(6, 12))
 
         # Row 3/4 — status bar
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=3, column=0, sticky="ew")
@@ -236,8 +230,6 @@ class TranscriptionApp:
         self._status_var.set("Recording…")
         self._text.config(state=tk.DISABLED)
         self._text.edit_reset()
-        self._undo_btn.config(state=tk.DISABLED)
-        self._redo_btn.config(state=tk.DISABLED)
 
         existing = self._text.get("1.0", tk.END).rstrip("\n")
         self._session_prefix     = (existing + "\n") if existing else ""
@@ -258,8 +250,6 @@ class TranscriptionApp:
         self._status_var.set("Processing remaining audio…")
         self._text.config(state=tk.NORMAL)
         self._text.edit_reset()
-        self._undo_btn.config(state=tk.NORMAL)
-        self._redo_btn.config(state=tk.NORMAL)
         self._mgr.stop_session()
 
     # ── UI queue polling ───────────────────────────────────────────────────────
@@ -376,18 +366,6 @@ class TranscriptionApp:
         self._text.mark_set(tk.INSERT, "1.0")
         self._text.see(tk.INSERT)
         return "break"
-
-    def _undo(self) -> None:
-        try:
-            self._text.edit_undo()
-        except tk.TclError:
-            pass
-
-    def _redo(self) -> None:
-        try:
-            self._text.edit_redo()
-        except tk.TclError:
-            pass
 
     def _clear_text(self) -> None:
         self._begin_write()
