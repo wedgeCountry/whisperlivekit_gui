@@ -42,57 +42,43 @@ _CMDS: list[tuple] = [
     (re.compile(r"\bsemicolon\b,?\s*",       re.I), "; "),
 
     # ── Ordinal list markers (DE + EN) ────────────────────────────────────────
-    (re.compile(r"\berstens\b[,.]?\s*",      re.I), "1. "),
-    (re.compile(r"\bzweitens\b[,.]?\s*",     re.I), "2. "),
-    (re.compile(r"\bdrittens\b[,.]?\s*",     re.I), "3. "),
-    (re.compile(r"\bviertens\b[,.]?\s*",     re.I), "4. "),
-    (re.compile(r"\bfünftens\b[,.]?\s*",     re.I), "5. "),
-    (re.compile(r"\bsechstens\b[,.]?\s*",    re.I), "6. "),
-    (re.compile(r"\bsiebte?ns?\b[,.]?\s*",   re.I), "7. "),
-    (re.compile(r"\bachtens\b[,.]?\s*",      re.I), "8. "),
-    (re.compile(r"\bneuntens\b[,.]?\s*",     re.I), "9. "),
-    (re.compile(r"\bzehntens\b[,.]?\s*",     re.I), "10. "),
-    (re.compile(r"\bfirst(?:ly)?\b[,.]?\s*", re.I), "1. "),
-    (re.compile(r"\bsecond(?:ly)?\b[,.]?\s*",re.I), "2. "),
-    (re.compile(r"\bthird(?:ly)?\b[,.]?\s*", re.I), "3. "),
-    (re.compile(r"\bfourth(?:ly)?\b[,.]?\s*",re.I), "4. "),
-    (re.compile(r"\bfifth(?:ly)?\b[,.]?\s*", re.I), "5. "),
-    (re.compile(r"\bsixth(?:ly)?\b[,.]?\s*", re.I), "6. "),
-    (re.compile(r"\bseventh(?:ly)?\b[,.]?\s*",re.I),"7. "),
-    (re.compile(r"\beighth(?:ly)?\b[,.]?\s*",re.I), "8. "),
-    (re.compile(r"\bninth(?:ly)?\b[,.]?\s*", re.I), "9. "),
-    (re.compile(r"\btenth(?:ly)?\b[,.]?\s*", re.I), "10. "),
+    (re.compile(r"\berstens\b[,.]?\s*",      re.I), "\n1. "),
+    (re.compile(r"\bzweitens\b[,.]?\s*",     re.I), "\n2. "),
+    (re.compile(r"\bdrittens\b[,.]?\s*",     re.I), "\n3. "),
+    (re.compile(r"\bviertens\b[,.]?\s*",     re.I), "\n4. "),
+    (re.compile(r"\bfünftens\b[,.]?\s*",     re.I), "\n5. "),
+    (re.compile(r"\bsechstens\b[,.]?\s*",    re.I), "\n6. "),
+    (re.compile(r"\bsiebte?ns?\b[,.]?\s*",   re.I), "\n7. "),
+    (re.compile(r"\bachtens\b[,.]?\s*",      re.I), "\n8. "),
+    (re.compile(r"\bneuntens\b[,.]?\s*",     re.I), "\n9. "),
+    (re.compile(r"\bzehntens\b[,.]?\s*",     re.I), "\n10. "),
+    (re.compile(r"\bfirst(?:ly)?\b[,.]?\s*", re.I), "\n1. "),
+    (re.compile(r"\bsecond(?:ly)?\b[,.]?\s*",re.I), "\n2. "),
+    (re.compile(r"\bthird(?:ly)?\b[,.]?\s*", re.I), "\n3. "),
+    (re.compile(r"\bfourth(?:ly)?\b[,.]?\s*",re.I), "\n4. "),
+    (re.compile(r"\bfifth(?:ly)?\b[,.]?\s*", re.I), "\n5. "),
+    (re.compile(r"\bsixth(?:ly)?\b[,.]?\s*", re.I), "\n6. "),
+    (re.compile(r"\bseventh(?:ly)?\b[,.]?\s*",re.I),"\n7. "),
+    (re.compile(r"\beighth(?:ly)?\b[,.]?\s*",re.I), "\n8. "),
+    (re.compile(r"\bninth(?:ly)?\b[,.]?\s*", re.I), "\n9. "),
+    (re.compile(r"\btenth(?:ly)?\b[,.]?\s*", re.I), "\n10. "),
 ]
 
 
-def apply_commands(text: str, context: str = "") -> str | None:
-    """Apply voice-command substitutions to the last 3 words relative to the cursor.
+def apply_commands_full(text: str) -> str | None:
+    """Apply all voice-command substitutions across the entire text at once.
 
-    context is the text before `text` (e.g. the session prefix up to the cursor) —
-    used only to locate the 3-word window correctly; it is never modified.
-    Returns the modified string if any pattern matched, or None if nothing changed.
+    Used for post-processing after recording ends.  Every occurrence
+    throughout the text is replaced — no windowing or length limit.
+    Returns the modified string, or None if nothing changed.
     """
-    combined = context + text
-    word_spans = [(m.start(), m.end()) for m in re.finditer(r'\S+', combined)]
-    text_start = len(context)
-
-    if len(word_spans) <= 3:
-        tail_offset = 0
-    else:
-        tail_offset = max(word_spans[-3][0] - text_start, 0)
-
-    head = text[:tail_offset]
-    tail = text[tail_offset:]
-
-    new_tail = tail
+    new_text = text
     for pattern, replacement in _CMDS:
-        new_tail = pattern.sub(replacement, new_tail)
-
-    if new_tail == tail:
-        return None  # no pattern matched
-
-    new_tail = re.sub(r"\n{3,}", "\n\n", new_tail)
-    return (head + new_tail).lstrip("\n")
+        new_text = pattern.sub(replacement, new_text)
+    new_text = re.sub(r"\n{3,}", "\n\n", new_text)
+    if new_text == text:
+        return None
+    return new_text.lstrip("\n")
 
 
 # ── Prompt-leak removal ────────────────────────────────────────────────────────

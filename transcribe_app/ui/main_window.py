@@ -24,7 +24,7 @@ from transcribe_app.config import LANGUAGE_OPTS, get_model_size
 from ..engine import EngineManager, loading_status
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
-from ..text_processing import apply_commands, clean, strip_prompt_leak
+from ..text_processing import apply_commands_full, clean, strip_prompt_leak
 from .theme import (
     C_ACCENT, C_ACCENT_H, C_BG, C_BORDER, C_BUFFER, C_DANGER, C_DANGER_H,
     C_HEADER, C_MUTED, C_STATUS_BG, C_SURFACE, C_TEXT,
@@ -49,6 +49,7 @@ class TranscriptionApp:
         # Display state
         self._session_prefix:     str   = ""
         self._session_suffix:     str   = ""   # text after cursor, preserved during recording
+        self._recording_prefix:   str   = ""   # snapshot of _session_prefix at recording start
         self._last_raw_committed: str   = ""
         self._absorbed_committed: str   = ""
         self._last_text_time:     float = 0.0
@@ -254,6 +255,7 @@ class TranscriptionApp:
         # Capture cursor position before disabling the widget
         cursor = self._text.index(tk.INSERT)
         self._session_prefix    = self._text.get("1.0", cursor)
+        self._recording_prefix  = self._session_prefix   # snapshot for post-processing
         self._session_suffix    = self._text.get(cursor, "end-1c")
         self._last_raw_committed = ""
         self._absorbed_committed = ""
@@ -295,6 +297,7 @@ class TranscriptionApp:
                     case "finalise":
                         _, committed = msg
                         self._set_text(committed, "")
+                        self._postprocess()
         except queue.Empty:
             pass
 
@@ -332,11 +335,8 @@ class TranscriptionApp:
                 self._absorbed_committed = ""
 
         prompt = self._settings.prompts[self._settings.language]
-        display_committed = apply_commands(
-            clean(strip_prompt_leak(display_committed, prompt)),
-            context=self._session_prefix,
-        ) or display_committed
-        display_buffer = clean(strip_prompt_leak(buffer, prompt))
+        display_committed = clean(strip_prompt_leak(display_committed, prompt))
+        display_buffer    = clean(strip_prompt_leak(buffer, prompt))
 
         sig = display_committed + "\x00" + display_buffer
         if sig != self._last_display_sig:
@@ -358,9 +358,12 @@ class TranscriptionApp:
         self._text.see(tk.END)
 
     def _restructure(self) -> None:
-        """Apply clean + apply_commands to the committed text after a silence pause."""
+        """Bake accumulated text into _session_prefix to keep display_committed short.
+
+        Voice commands are no longer applied here; they run in bulk via
+        _postprocess() the moment recording ends.
+        """
         full = self._text.get("1.0", tk.END)
-        # Exclude the preserved suffix so commands aren't matched against it
         if self._session_suffix:
             idx = full.rfind(self._session_suffix)
             current = (full[:idx] if idx >= 0 else full).rstrip()
@@ -369,23 +372,56 @@ class TranscriptionApp:
         if not current:
             self._last_text_time = 0.0
             return
-        restructured = apply_commands(clean(current))
-        if restructured is None:
-            self._last_text_time = 0.0
-            return
-        self._session_prefix     = restructured + "\n"
+        self._session_prefix     = current + "\n"
         self._absorbed_committed = self._last_raw_committed
         self._last_text_time     = 0.0
         self._last_display_sig   = ""
+        # No redraw: the text content is unchanged; the new structure takes
+        # effect automatically on the next _set_text() call.
+
+    def _postprocess(self) -> None:
+        """Apply voice commands to the dictated text after recording ends.
+
+        Only the text added during the current recording session is processed —
+        any pre-existing content in the editor is left untouched.
+        """
+        full = self._text.get("1.0", "end-1c")
+
+        # Split off the preserved suffix (text that was after the cursor).
+        if self._session_suffix and self._session_suffix in full:
+            idx  = full.rfind(self._session_suffix)
+            body = full[:idx]
+            suffix = full[idx:]
+        else:
+            body   = full
+            suffix = ""
+
+        # Identify just the newly dictated part (everything after the pre-recording prefix).
+        prefix = self._recording_prefix
+        if prefix and body.startswith(prefix):
+            new_text = body[len(prefix):]
+        else:
+            # Safety fallback: no recognisable boundary — process the whole body.
+            prefix   = ""
+            new_text = body
+
+        processed = apply_commands_full(clean(new_text))
+        if processed is None:
+            return  # nothing to substitute
 
         self._begin_write()
         self._text.delete("1.0", tk.END)
-        self._text.insert(tk.END, self._session_prefix)
-        if self._session_suffix:
-            self._text.insert(tk.END, self._session_suffix)
+        if prefix:
+            self._text.insert(tk.END, prefix)
+        self._text.insert(tk.END, processed)
+        if suffix:
+            self._text.insert(tk.END, suffix)
         self._render_markdown()
         self._end_write()
         self._text.see(tk.END)
+
+        # Keep session_prefix consistent so the next recording starts correctly.
+        self._session_prefix = prefix + processed
 
     def _render_markdown(self) -> None:
         for tag in ("h1", "h2", "h3", "para_space"):
