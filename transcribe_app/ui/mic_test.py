@@ -1,13 +1,28 @@
 import math
 import tkinter as tk
+from dataclasses import replace
+from tkinter import ttk
+from typing import Callable
 
 import numpy as np
 
 from .theme import (
     C_BG, C_SURFACE, C_BORDER, C_TEXT, C_MUTED,
     C_ACCENT, C_ACCENT_H, F_SMALL, center_on_parent,
+    apply_ttk_style,
 )
 from transcribe_app.config import CHANNELS, DTYPE, SAMPLE_RATE
+from transcribe_app.settings import Settings
+
+
+def _list_input_devices() -> list[tuple[int, str]]:
+    """Return [(index, label), …] for all devices with at least one input channel."""
+    import sounddevice as sd
+    devices = []
+    for i, dev in enumerate(sd.query_devices()):
+        if dev["max_input_channels"] > 0:
+            devices.append((i, dev["name"]))
+    return devices
 
 
 class MicTestWindow:
@@ -16,7 +31,14 @@ class MicTestWindow:
     POLL_MS = 40
     CHUNK   = 1024
 
-    def __init__(self, parent: tk.Widget) -> None:
+    def __init__(
+        self,
+        parent: tk.Widget,
+        settings: Settings,
+        on_save: Callable[[Settings], None],
+    ) -> None:
+        self._settings   = settings
+        self._on_save    = on_save
         self._stream     = None
         self._amplitude  = 0.0
         self._peak_x     = 0.0
@@ -28,15 +50,58 @@ class MicTestWindow:
         self._win.configure(bg=C_BG)
         self._win.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        apply_ttk_style(self._win)
         self._build_ui()
         center_on_parent(self._win, parent)
-        self._start_stream()
+        self._start_stream(settings.input_device)
         self._animate()
 
     def _build_ui(self) -> None:
         outer = tk.Frame(self._win, bg=C_BG, padx=20, pady=16)
         outer.pack(fill=tk.BOTH, expand=True)
 
+        # ── Device selector ────────────────────────────────────────────────────
+        sel_frame = tk.Frame(outer, bg=C_BG)
+        sel_frame.pack(fill=tk.X, pady=(0, 14))
+
+        tk.Label(
+            sel_frame, text="Input device",
+            bg=C_BG, fg=C_MUTED, font=F_SMALL,
+            anchor="w",
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        try:
+            self._devices = _list_input_devices()
+        except Exception:
+            self._devices = []
+
+        # Build display labels; mark the system default
+        labels = ["System default"] + [name for _, name in self._devices]
+        indices = [None] + [idx for idx, _ in self._devices]  # parallel list
+
+        # Find the label matching the current setting
+        current_idx = self._settings.input_device
+        try:
+            sel = indices.index(current_idx)
+        except ValueError:
+            sel = 0
+
+        self._dev_var = tk.StringVar(value=labels[sel])
+        self._dev_indices = indices
+
+        combo = ttk.Combobox(
+            sel_frame,
+            textvariable=self._dev_var,
+            values=labels,
+            state="readonly",
+            width=36,
+            font=("TkDefaultFont", 10),
+        )
+        combo.current(sel)
+        combo.pack(side=tk.LEFT)
+        combo.bind("<<ComboboxSelected>>", self._on_device_change)
+
+        # ── Level label ────────────────────────────────────────────────────────
         tk.Label(
             outer, text="Microphone input level",
             bg=C_BG, fg=C_TEXT, font=("TkDefaultFont", 11, "bold"),
@@ -62,19 +127,23 @@ class MicTestWindow:
             anchor="center",
         ).pack(fill=tk.X, pady=(0, 8))
 
-        try:
-            import sounddevice as sd
-            dev  = sd.query_devices(kind="input")
-            info = f"{dev['name']}  ·  {int(dev['default_samplerate'])} Hz"
-        except Exception:
-            info = "Default input device"
-        tk.Label(
-            outer, text=info,
-            bg=C_BG, fg=C_MUTED, font=F_SMALL,
-            anchor="center", wraplength=self.BAR_W,
-        ).pack(fill=tk.X)
+    def _on_device_change(self, _event=None) -> None:
+        label = self._dev_var.get()
+        labels = ["System default"] + [name for _, name in self._devices]
+        sel = labels.index(label)
+        device = self._dev_indices[sel]
 
-    def _start_stream(self) -> None:
+        self._settings = replace(self._settings, input_device=device)
+        self._on_save(self._settings)
+
+        # Restart the stream with the new device
+        self._stop_stream()
+        self._amplitude  = 0.0
+        self._peak_x     = 0.0
+        self._peak_decay = 0.0
+        self._start_stream(device)
+
+    def _start_stream(self, device: int | None) -> None:
         import sounddevice as sd
 
         def _cb(indata: np.ndarray, frames: int, time_info, status) -> None:
@@ -84,8 +153,15 @@ class MicTestWindow:
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
             blocksize=self.CHUNK, callback=_cb,
+            device=device,
         )
         self._stream.start()
+
+    def _stop_stream(self) -> None:
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
 
     def _animate(self) -> None:
         if not self._win.winfo_exists():
@@ -115,8 +191,5 @@ class MicTestWindow:
         self._win.after(self.POLL_MS, self._animate)
 
     def _on_close(self) -> None:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        self._stop_stream()
         self._win.destroy()
