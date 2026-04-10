@@ -116,7 +116,8 @@ class EngineManager:
         lan        = opts["lan"]
         self._lang = lang
 
-        _TranscriptionEngine.reset()
+        _TranscriptionEngine._instance = None
+        _TranscriptionEngine._initialized = False
         self._on_status(loading_status(model_size, lang))
 
         def _make_cfg(size: str):
@@ -134,7 +135,8 @@ class EngineManager:
                     f"Fehler beim Laden ({exc.__class__.__name__}), "
                     f"Fallback: {loading_status(fallback, lang)}"
                 )
-                _TranscriptionEngine.reset()
+                _TranscriptionEngine._instance = None
+                _TranscriptionEngine._initialized = False
                 self._engine = _TranscriptionEngine(config=_make_cfg(fallback))
             else:
                 self._on_status(f"Fehler: {exc}")
@@ -213,7 +215,8 @@ class EngineManager:
         self.stop_session()
         self._processor = None
         if self._engine is not None and _TranscriptionEngine is not None:
-            _TranscriptionEngine.reset()
+            _TranscriptionEngine._instance = None
+            _TranscriptionEngine._initialized = False
             self._engine = None
         if GPU:
             try:
