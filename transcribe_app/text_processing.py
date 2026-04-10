@@ -25,10 +25,18 @@ _CMDS: list[tuple] = [
 
 
 def apply_commands(text: str) -> str:
+    """Apply voice-command substitutions to the last 3 words only."""
+    word_spans = [(m.start(), m.end()) for m in re.finditer(r'\S+', text)]
+    if len(word_spans) <= 3:
+        head, tail = "", text
+    else:
+        split_pos = word_spans[-3][0]
+        head, tail = text[:split_pos], text[split_pos:]
+
     for pattern, replacement in _CMDS:
-        text = pattern.sub(replacement, text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.lstrip("\n")
+        tail = pattern.sub(replacement, tail)
+    tail = re.sub(r"\n{3,}", "\n\n", tail)
+    return (head + tail).lstrip("\n")
 
 
 # ── Prompt-leak removal ────────────────────────────────────────────────────────
