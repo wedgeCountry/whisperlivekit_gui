@@ -5,6 +5,7 @@ from typing import Callable
 
 from ..theme import C_BG, C_SURFACE, C_TEXT, C_BORDER, C_MUTED, F_SMALL, F_LABEL, make_btn, center_on_parent
 from transcribe_app.config import LANGUAGE_OPTS, DEFAULT_PROMPTS, get_model_size
+from transcribe_app.i18n import t
 from transcribe_app.settings import Settings
 
 
@@ -19,7 +20,7 @@ class VoiceStyleDialog:
         self._on_save  = on_save
 
         self._win = tk.Toplevel(parent)
-        self._win.title("Voice & Style Prompt")
+        self._win.title(t("dlg.vs.title"))
         self._win.resizable(False, False)
         self._win.configure(bg=C_BG)
         self._win.grab_set()
@@ -32,7 +33,7 @@ class VoiceStyleDialog:
         outer.columnconfigure(1, weight=1)
 
         # Row 0 — language
-        tk.Label(outer, text="Language:", bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+        tk.Label(outer, text=t("dlg.vs.language"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
             row=0, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
         )
         self._lang_var = tk.StringVar(value=self._settings.language)
@@ -46,7 +47,7 @@ class VoiceStyleDialog:
         ).grid(row=0, column=1, sticky="w", pady=(0, 10))
 
         # Row 1 — model speed
-        tk.Label(outer, text="Model:", bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+        tk.Label(outer, text=t("dlg.vs.model"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
             row=1, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
         )
         speed_frame = tk.Frame(outer, bg=C_BG)
@@ -72,7 +73,7 @@ class VoiceStyleDialog:
         self._speed_var.trace_add("write", lambda *_: self._update_speed_hint())
 
         # Row 2 — style prompt
-        tk.Label(outer, text="Style Prompt:", bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+        tk.Label(outer, text=t("dlg.vs.prompt"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
             row=2, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
         )
         border = tk.Frame(outer, bg=C_BORDER)
@@ -92,8 +93,8 @@ class VoiceStyleDialog:
 
         btn_row = tk.Frame(outer, bg=C_BG)
         btn_row.grid(row=3, column=0, columnspan=2, sticky="e")
-        make_btn(btn_row, "Reset", self._reset).pack(side=tk.LEFT, padx=(0, 8))
-        make_btn(btn_row, "Save", self._save, primary=True).pack(side=tk.LEFT)
+        make_btn(btn_row, t("dlg.vs.reset"), self._reset).pack(side=tk.LEFT, padx=(0, 8))
+        make_btn(btn_row, t("dlg.vs.save"), self._save, primary=True).pack(side=tk.LEFT)
 
     def _update_speed_hint(self) -> None:
         lang  = self._lang_var.get()

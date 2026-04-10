@@ -10,6 +10,7 @@ from transcribe_app.config import (
     DEFAULT_PROMPTS,
     LANGUAGE_OPTS,
 )
+from transcribe_app.i18n import UI_LANGUAGES
 
 _CONFIG_DIR = (
     Path.home() / "AppData" / "Roaming" / "transcribe_app"
@@ -26,6 +27,7 @@ class Settings:
     input_device: int | None     = None   # sounddevice device index; None = system default
     model_speed:  str            = "fast"    # "fast" or "normal"
     mic_gain:     float          = 1.0       # linear amplitude multiplier applied before transcription
+    ui_language:  str            = "en"      # interface language code; see i18n.UI_LANGUAGES
 
 
 def load() -> Settings:
@@ -47,6 +49,9 @@ def load() -> Settings:
     raw_gain = data.get("mic_gain", 1.0)
     mic_gain = float(raw_gain) if isinstance(raw_gain, (int, float)) and 0.1 <= raw_gain <= 5.0 else 1.0
 
+    raw_ui_lang = data.get("ui_language", "en")
+    ui_language = raw_ui_lang if raw_ui_lang in UI_LANGUAGES else "en"
+
     return Settings(
         language=lang,
         prompts={
@@ -56,6 +61,7 @@ def load() -> Settings:
         input_device=input_device,
         model_speed=model_speed,
         mic_gain=mic_gain,
+        ui_language=ui_language,
     )
 
 
@@ -70,6 +76,7 @@ def save(s: Settings) -> None:
                     "input_device": s.input_device,
                     "model_speed":  s.model_speed,
                     "mic_gain":     s.mic_gain,
+                    "ui_language":  s.ui_language,
                 },
                 indent=2,
             ),

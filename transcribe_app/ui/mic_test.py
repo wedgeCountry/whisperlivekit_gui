@@ -15,6 +15,7 @@ from .theme import (
     apply_ttk_style,
 )
 from transcribe_app.config import CHANNELS, DTYPE, SAMPLE_RATE
+from transcribe_app.i18n import t
 from transcribe_app.settings import Settings
 
 
@@ -48,7 +49,7 @@ class MicTestWindow:
         self._peak_decay = 0.0
 
         self._win = tk.Toplevel(parent)
-        self._win.title("Microphone Test")
+        self._win.title(t("dlg.mic.title"))
         self._win.resizable(False, False)
         self._win.configure(bg=C_BG)
         self._win.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -68,7 +69,7 @@ class MicTestWindow:
         sel_frame.pack(fill=tk.X, pady=(0, 14))
 
         tk.Label(
-            sel_frame, text="Input device",
+            sel_frame, text=t("dlg.mic.input_device"),
             bg=C_BG, fg=C_MUTED, font=F_SMALL,
             anchor="w",
         ).pack(side=tk.LEFT, padx=(0, 8))
@@ -79,7 +80,7 @@ class MicTestWindow:
             self._devices = []
 
         # Build display labels; mark the system default
-        labels = ["System default"] + [name for _, name in self._devices]
+        labels = [t("dlg.mic.default_device")] + [name for _, name in self._devices]
         indices = [None] + [idx for idx, _ in self._devices]  # parallel list
 
         # Find the label matching the current setting
@@ -106,7 +107,7 @@ class MicTestWindow:
 
         # ── Level label ────────────────────────────────────────────────────────
         tk.Label(
-            outer, text="Microphone input level",
+            outer, text=t("dlg.mic.level"),
             bg=C_BG, fg=C_TEXT, font=("TkDefaultFont", 11, "bold"),
             anchor="w",
         ).pack(fill=tk.X, pady=(0, 10))
@@ -135,7 +136,7 @@ class MicTestWindow:
         sens_frame.pack(fill=tk.X, pady=(6, 0))
 
         tk.Label(
-            sens_frame, text="Sensitivity",
+            sens_frame, text=t("dlg.mic.sensitivity"),
             bg=C_BG, fg=C_TEXT, font=("TkDefaultFont", 11, "bold"),
             anchor="w",
         ).pack(fill=tk.X)
@@ -177,7 +178,7 @@ class MicTestWindow:
 
     def _on_device_change(self, _event=None) -> None:
         label = self._dev_var.get()
-        labels = ["System default"] + [name for _, name in self._devices]
+        labels = [t("dlg.mic.default_device")] + [name for _, name in self._devices]
         sel = labels.index(label)
         device = self._dev_indices[sel]
 

@@ -20,6 +20,7 @@ from typing import Callable
 import numpy as np
 
 from transcribe_app.config import CHUNK_SECONDS, CHANNELS, DTYPE, GPU, LANGUAGE_OPTS, SAMPLE_RATE
+from transcribe_app.i18n import t
 
 # WhisperLiveKit types are imported lazily inside the background thread so that
 # PortAudio / CUDA initialisation does not block the Tk window from opening.
@@ -47,8 +48,8 @@ def _is_model_cached(model_size: str) -> bool:
 
 def loading_status(model_size: str, lang: str) -> str:
     device = "GPU" if GPU else "CPU"
-    verb   = "Lade" if _is_model_cached(model_size) else "Lade herunter"
-    return f"{verb}: {model_size}  ({lang} · {device})…"
+    key    = "status.loading" if _is_model_cached(model_size) else "status.downloading"
+    return t(key, model=model_size, lang=lang, device=device)
 
 
 # ── tqdm progress capture ──────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ class EngineManager:
             except Exception as exc:  # noqa: BLE001
                 # Surface any unhandled error instead of silently killing the thread
                 # (which would leave the UI stuck on the loading screen forever).
-                self._on_status(f"Kritischer Fehler: {exc!r}")
+                self._on_status(t("status.critical_error", exc=repr(exc)))
                 self._on_ready()
 
         threading.Thread(target=_run, daemon=True).start()
@@ -178,27 +179,28 @@ class EngineManager:
             self._engine = _TranscriptionEngine(config=_make_cfg(model_size))
         except Exception as exc:
             if GPU and model_size != fallback:
-                self._on_status(
-                    f"Fehler beim Laden ({exc.__class__.__name__}), "
-                    f"Fallback: {loading_status(fallback, lang)}"
-                )
+                self._on_status(t(
+                    "status.error_fallback",
+                    exc_type=exc.__class__.__name__,
+                    status=loading_status(fallback, lang),
+                ))
                 _TranscriptionEngine._instance = None
                 _TranscriptionEngine._initialized = False
                 try:
                     self._engine = _TranscriptionEngine(config=_make_cfg(fallback))
                 except Exception as fallback_exc:
-                    self._on_status(f"Fehler: {fallback_exc}")
+                    self._on_status(t("status.error", exc=fallback_exc))
                     self._on_ready()
                     return
             else:
-                self._on_status(f"Fehler: {exc}")
+                self._on_status(t("status.error", exc=exc))
                 self._on_ready()
                 return
         finally:
             if _orig_stderr is not None:
                 sys.stderr = _orig_stderr
 
-        self._on_status(f"Bereit  ·  {lang} Modell geladen")
+        self._on_status(t("status.ready", lang=lang))
         self._on_ready()
 
     # ── Recording session ─────────────────────────────────────────────────────
@@ -222,7 +224,7 @@ class EngineManager:
             self._on_update(committed_text, front_data.buffer_transcription or "")
 
         self._on_finalise(committed_text)
-        self._on_status(f"Ready  ·  {self._lang} model loaded")
+        self._on_status(t("status.ready", lang=self._lang))
 
     def open_mic_stream(self, device: int | None = None) -> None:
         """Open the sounddevice InputStream. Must be called from the UI thread

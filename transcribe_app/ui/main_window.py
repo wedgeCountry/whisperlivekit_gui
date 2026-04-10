@@ -22,6 +22,7 @@ from tkinter import filedialog, scrolledtext, ttk
 
 from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
 from ..engine import EngineManager, loading_status
+from ..i18n import UI_LANGUAGES, get_language, set_language, t
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
 from ..text_processing import apply_commands_full, clean, strip_prompt_leak
@@ -35,11 +36,12 @@ from .theme import (
 class TranscriptionApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Live Transcription")
-        self.root.minsize(560, 460)
+        self.root.title(t("window.title"))
+        self.root.minsize(640, 460)
         self.root.configure(bg=C_BG)
 
         self._settings: Settings    = settings_io.load()
+        set_language(self._settings.ui_language)
         self._recording: bool       = False
         self._space_held: bool      = False   # push-to-talk state
         self._space_after_id: str | None = None  # pending 3-s timer
@@ -82,17 +84,17 @@ class TranscriptionApp:
         self.root.rowconfigure(1, weight=1)
 
         # Menu bar
-        menubar = tk.Menu(self.root, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
-        self.root.config(menu=menubar)
+        self._menubar = tk.Menu(self.root, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
+        self.root.config(menu=self._menubar)
 
-        file_menu = tk.Menu(menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Save as file…", command=self._save_file)
-        file_menu.add_command(label="Load…",         command=self._load_file)
+        self._file_menu = tk.Menu(self._menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
+        self._menubar.add_cascade(label=t("menu.file"), menu=self._file_menu)
+        self._file_menu.add_command(label=t("menu.file.save"), command=self._save_file)
+        self._file_menu.add_command(label=t("menu.file.load"), command=self._load_file)
 
-        edit_menu = tk.Menu(menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
-        menubar.add_cascade(label="Edit", menu=edit_menu)
-        edit_menu.add_command(label="Voice & Style Prompt…", command=self._open_voice_style)
+        self._edit_menu = tk.Menu(self._menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
+        self._menubar.add_cascade(label=t("menu.edit"), menu=self._edit_menu)
+        self._edit_menu.add_command(label=t("menu.edit.voice_style"), command=self._open_voice_style)
 
         # Row 0 — header
         header = tk.Frame(self.root, bg=C_HEADER)
@@ -109,9 +111,10 @@ class TranscriptionApp:
 
         lang_frame = tk.Frame(header, bg=C_HEADER)
         lang_frame.grid(row=0, column=2, padx=12, pady=8, sticky="e")
-        tk.Label(lang_frame, text="Language", bg=C_HEADER, fg=C_MUTED, font=F_SMALL).pack(
-            side=tk.LEFT, padx=(0, 6)
+        self._lang_label = tk.Label(
+            lang_frame, text=t("header.language"), bg=C_HEADER, fg=C_MUTED, font=F_SMALL
         )
+        self._lang_label.pack(side=tk.LEFT, padx=(0, 6))
         self._lang_var = tk.StringVar(value=self._settings.language)
         self._lang_combo = ttk.Combobox(
             lang_frame,
@@ -124,10 +127,11 @@ class TranscriptionApp:
         self._lang_combo.bind("<<ComboboxSelected>>", self._on_language_change)
 
         speed_frame = tk.Frame(header, bg=C_HEADER)
-        speed_frame.grid(row=0, column=3, padx=(0, 12), pady=8, sticky="e")
-        tk.Label(speed_frame, text="Model", bg=C_HEADER, fg=C_MUTED, font=F_SMALL).pack(
-            side=tk.LEFT, padx=(0, 6)
+        speed_frame.grid(row=0, column=3, padx=(0, 4), pady=8, sticky="e")
+        self._model_label = tk.Label(
+            speed_frame, text=t("header.model"), bg=C_HEADER, fg=C_MUTED, font=F_SMALL
         )
+        self._model_label.pack(side=tk.LEFT, padx=(0, 6))
         self._speed_var = tk.StringVar(value=self._settings.model_speed)
         self._speed_combo = ttk.Combobox(
             speed_frame,
@@ -138,6 +142,23 @@ class TranscriptionApp:
         )
         self._speed_combo.pack(side=tk.LEFT)
         self._speed_combo.bind("<<ComboboxSelected>>", self._on_speed_change)
+
+        ui_frame = tk.Frame(header, bg=C_HEADER)
+        ui_frame.grid(row=0, column=4, padx=(0, 12), pady=8, sticky="e")
+        self._ui_label = tk.Label(
+            ui_frame, text=t("header.interface"), bg=C_HEADER, fg=C_MUTED, font=F_SMALL
+        )
+        self._ui_label.pack(side=tk.LEFT, padx=(0, 6))
+        self._ui_lang_var = tk.StringVar(value=UI_LANGUAGES[self._settings.ui_language])
+        self._ui_lang_combo = ttk.Combobox(
+            ui_frame,
+            textvariable=self._ui_lang_var,
+            values=list(UI_LANGUAGES.values()),
+            state="readonly", width=8,
+            font=("TkDefaultFont", 10),
+        )
+        self._ui_lang_combo.pack(side=tk.LEFT)
+        self._ui_lang_combo.bind("<<ComboboxSelected>>", self._on_ui_lang_change)
 
         # Row 1 — text area
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=1, column=0, sticky="new")
@@ -173,13 +194,16 @@ class TranscriptionApp:
         btn_bar.grid(row=2, column=0, sticky="ew")
         btn_bar.columnconfigure((0, 1, 2, 3), weight=1)
 
-        self._record_btn = make_btn(btn_bar, "⏺  Record", self._toggle_recording, primary=True)
+        self._record_btn = make_btn(btn_bar, t("btn.record"), self._toggle_recording, primary=True)
         self._record_btn.config(state=tk.DISABLED)
         self._record_btn.grid(row=0, column=0, padx=(12, 6))
 
-        make_btn(btn_bar, "Clear",    self._clear_text   ).grid(row=0, column=1, padx=6)
-        make_btn(btn_bar, "Copy",     self._copy_text    ).grid(row=0, column=2, padx=6)
-        make_btn(btn_bar, "Test Mic", self._open_mic_test).grid(row=0, column=3, padx=(6, 12))
+        self._clear_btn = make_btn(btn_bar, t("btn.clear"),    self._clear_text)
+        self._clear_btn.grid(row=0, column=1, padx=6)
+        self._copy_btn = make_btn(btn_bar, t("btn.copy"),     self._copy_text)
+        self._copy_btn.grid(row=0, column=2, padx=6)
+        self._mic_test_btn = make_btn(btn_bar, t("btn.mic_test"), self._open_mic_test)
+        self._mic_test_btn.grid(row=0, column=3, padx=(6, 12))
 
         # Row 3/4 — status bar
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=3, column=0, sticky="ew")
@@ -219,6 +243,38 @@ class TranscriptionApp:
         self._settings = replace(self._settings, model_speed=speed)
         settings_io.save(self._settings)
         self._reload_engine(self._settings.language)
+
+    def _on_ui_lang_change(self, _event=None) -> None:
+        display = self._ui_lang_var.get()
+        code = next((k for k, v in UI_LANGUAGES.items() if v == display), "en")
+        if code == self._settings.ui_language:
+            return
+        self._settings = replace(self._settings, ui_language=code)
+        settings_io.save(self._settings)
+        set_language(code)
+        self._apply_ui_lang()
+
+    def _apply_ui_lang(self) -> None:
+        """Re-render all static UI text in the active interface language."""
+        self.root.title(t("window.title"))
+        # Menu bar cascades
+        self._menubar.entryconfigure(0, label=t("menu.file"))
+        self._menubar.entryconfigure(1, label=t("menu.edit"))
+        # File menu entries
+        self._file_menu.entryconfigure(0, label=t("menu.file.save"))
+        self._file_menu.entryconfigure(1, label=t("menu.file.load"))
+        # Edit menu entries
+        self._edit_menu.entryconfigure(0, label=t("menu.edit.voice_style"))
+        # Header labels
+        self._lang_label.config(text=t("header.language"))
+        self._model_label.config(text=t("header.model"))
+        self._ui_label.config(text=t("header.interface"))
+        # Buttons (only record btn text depends on recording state)
+        if not self._recording:
+            self._record_btn.config(text=t("btn.record"))
+        self._clear_btn.config(text=t("btn.clear"))
+        self._copy_btn.config(text=t("btn.copy"))
+        self._mic_test_btn.config(text=t("btn.mic_test"))
 
     def _reload_engine(self, lang: str) -> None:
         if self._recording:
@@ -270,11 +326,11 @@ class TranscriptionApp:
     def _start_recording(self) -> None:
         self._recording = True
         self._record_btn.config(
-            text="⏹  Stop",
+            text=t("btn.stop"),
             bg=C_DANGER, activebackground=C_DANGER_H,
         )
         hoverable(self._record_btn, C_DANGER, C_DANGER_H)
-        self._status_var.set("Recording…")
+        self._status_var.set(t("status.recording"))
 
         # Capture cursor position before disabling the widget
         cursor = self._text.index(tk.INSERT)
@@ -294,12 +350,12 @@ class TranscriptionApp:
     def _stop_recording(self) -> None:
         self._recording = False
         self._record_btn.config(
-            text="⏺  Record",
+            text=t("btn.record"),
             bg=C_ACCENT, activebackground=C_ACCENT_H,
             state=tk.DISABLED,
         )
         hoverable(self._record_btn, C_ACCENT, C_ACCENT_H)
-        self._status_var.set("Processing remaining audio…")
+        self._status_var.set(t("status.processing"))
         self._text.config(state=tk.NORMAL)
         self._text.edit_reset()
         self._mgr.stop_session()
@@ -481,10 +537,10 @@ class TranscriptionApp:
         content = self._text.get("1.0", tk.END).strip()
         self.root.clipboard_clear()
         self.root.clipboard_append(content)
-        self._status_var.set("Copied to clipboard ✓")
+        self._status_var.set(t("status.copied"))
         self.root.after(2000, lambda: self._status_var.set(
-            "Recording…" if self._recording
-            else f"Ready  ·  {self._settings.language} model loaded"
+            t("status.recording") if self._recording
+            else t("status.ready", lang=self._settings.language)
         ))
 
     # ── File menu ──────────────────────────────────────────────────────────────
@@ -495,20 +551,20 @@ class TranscriptionApp:
             return
         path = filedialog.asksaveasfilename(
             defaultextension=".txt",
-            filetypes=[("Text file", "*.txt"), ("Markdown", "*.md"), ("All files", "*")],
+            filetypes=[(t("file.type.text"), "*.txt"), ("Markdown", "*.md"), (t("file.type.all"), "*")],
         )
         if not path:
             return
         Path(path).write_text(text, encoding="utf-8")
-        self._status_var.set(f"Saved: {Path(path).name}")
+        self._status_var.set(t("status.saved", name=Path(path).name))
         self.root.after(3000, lambda: self._status_var.set(
-            "Recording…" if self._recording
-            else f"Ready  ·  {self._settings.language} model loaded"
+            t("status.recording") if self._recording
+            else t("status.ready", lang=self._settings.language)
         ))
 
     def _load_file(self) -> None:
         path = filedialog.askopenfilename(
-            filetypes=[("Text file", "*.txt"), ("Markdown", "*.md"), ("All files", "*")],
+            filetypes=[(t("file.type.text"), "*.txt"), ("Markdown", "*.md"), (t("file.type.all"), "*")],
         )
         if not path:
             return
@@ -523,10 +579,10 @@ class TranscriptionApp:
         self._last_display_sig    = ""
         self._last_text_time      = 0.0
         self._render_markdown()
-        self._status_var.set(f"Loaded: {Path(path).name}")
+        self._status_var.set(t("status.loaded", name=Path(path).name))
         self.root.after(3000, lambda: self._status_var.set(
-            "Recording…" if self._recording
-            else f"Ready  ·  {self._settings.language} model loaded"
+            t("status.recording") if self._recording
+            else t("status.ready", lang=self._settings.language)
         ))
 
     # ── Popup guard ────────────────────────────────────────────────────────────
