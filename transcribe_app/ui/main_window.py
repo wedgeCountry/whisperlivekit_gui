@@ -56,7 +56,9 @@ class TranscriptionApp:
             on_ready=lambda: self._ui_queue.put(("enable_controls",)),
             on_update=lambda c, b: self._ui_queue.put(("update", c, b)),
             on_finalise=lambda c: self._ui_queue.put(("finalise", c)),
-            on_open_mic=lambda: self.root.after(0, self._mgr.open_mic_stream),
+            on_open_mic=lambda: self.root.after(
+                0, lambda: self._mgr.open_mic_stream(self._settings.input_device)
+            ),
         )
 
         apply_ttk_style(root)
@@ -462,7 +464,12 @@ class TranscriptionApp:
 
     def _open_mic_test(self) -> None:
         from .mic_test import MicTestWindow
-        MicTestWindow(self.root)
+
+        def _on_device_save(new: Settings) -> None:
+            self._settings = new
+            settings_io.save(self._settings)
+
+        MicTestWindow(self.root, self._settings, _on_device_save)
 
     # ── Shutdown ───────────────────────────────────────────────────────────────
 

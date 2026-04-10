@@ -21,8 +21,9 @@ _SETTINGS_FILE = _CONFIG_DIR / "settings.json"
 
 @dataclass
 class Settings:
-    language: str            = DEFAULT_LANGUAGE
-    prompts:  dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PROMPTS))
+    language:     str            = DEFAULT_LANGUAGE
+    prompts:      dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PROMPTS))
+    input_device: int | None     = None  # sounddevice device index; None = system default
 
 
 def load() -> Settings:
@@ -35,12 +36,16 @@ def load() -> Settings:
     if lang not in LANGUAGE_OPTS:
         lang = DEFAULT_LANGUAGE
 
+    raw_device = data.get("input_device")
+    input_device = int(raw_device) if isinstance(raw_device, (int, float)) else None
+
     return Settings(
         language=lang,
         prompts={
             k: data.get("prompts", {}).get(k, DEFAULT_PROMPTS[k])
             for k in LANGUAGE_OPTS
         },
+        input_device=input_device,
     )
 
 
@@ -50,8 +55,9 @@ def save(s: Settings) -> None:
         _SETTINGS_FILE.write_text(
             json.dumps(
                 {
-                    "language": s.language,
-                    "prompts":  s.prompts,
+                    "language":     s.language,
+                    "prompts":      s.prompts,
+                    "input_device": s.input_device,
                 },
                 indent=2,
             ),

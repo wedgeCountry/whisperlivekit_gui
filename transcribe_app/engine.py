@@ -169,7 +169,7 @@ class EngineManager:
         self._on_finalise(committed_text)
         self._on_status(f"Ready  ·  {self._lang} model loaded")
 
-    def open_mic_stream(self) -> None:
+    def open_mic_stream(self, device: int | None = None) -> None:
         """Open the sounddevice InputStream. Must be called from the UI thread
         (scheduled via root.after) so that self._stream is only ever touched on
         the UI thread, matching stop_session()."""
@@ -189,6 +189,7 @@ class EngineManager:
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
             blocksize=blocksize, callback=_callback,
+            device=device,
         )
         self._stream.start()
 
