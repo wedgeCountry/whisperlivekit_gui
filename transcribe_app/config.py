@@ -51,10 +51,8 @@ SPACE_HOLD_TIME_MS = 300
 DEFAULT_PROMPTS: dict[str, str] = {
     "English": "",
     "Deutsch": (
-        "Diktat mit Sprachbefehlen: neue Zeile, neuer Absatz, Punkt, Komma, "
-        "Fragezeichen, Ausrufezeichen, Bindestrich, Doppelpunkt, Semikolon. "
-        "Erstens, zweitens, drittens, viertens, fünftens."
-        "Der Nutzer spricht mit Denkpausen. Wenn er eine Denkpause macht, dann füge ein Leerzeichen ein."
+        "Diktat mit Sprachbefehlen: neue Zeile, neuer Absatz, Satzzeichen, Erstens, zweitens, drittens..."
+        "Diktat mit Denkpausen. Bei Denkpause Leerzeichen statt Satzzeichen."
     ),
 }
 

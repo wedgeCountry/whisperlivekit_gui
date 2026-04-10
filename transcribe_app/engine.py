@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+from whisperlivekit import diarization
 
 from transcribe_app.config import CHUNK_SECONDS, CHANNELS, DTYPE, GPU, LANGUAGE_OPTS, SAMPLE_RATE
 from transcribe_app.i18n import t
@@ -166,7 +167,8 @@ class EngineManager:
         def _make_cfg(size: str):
             return _WhisperLiveKitConfig(
                 pcm_input=True, vac=True,
-                model_size=size, lan=lan,
+                model_size=size, lan=lan, decoder_type="beam" if GPU else "greedy",
+                min_chunk_size=0.30, audio_max_len=12.0, audio_min_len=0.20, direct_english_translation=False, #diarization=True,
                 static_init_prompt=prompt if prompt.strip() else None,
             )
 
@@ -239,11 +241,14 @@ class EngineManager:
         def _callback(indata: np.ndarray, frames: int, time_info, status) -> None:
             if not self._recording:
                 return
+            samples = indata.astype(np.float32)
+            peak = np.max(np.abs(samples))
+            if peak > 0:
+                samples /= peak
             gain = self.mic_gain
             if gain != 1.0:
-                audio = (indata.astype(np.float32) * gain).clip(-32768, 32767).astype("int16")
-            else:
-                audio = indata
+                samples *= gain
+            audio = (samples * 32767).clip(-32768, 32767).astype("int16")
             asyncio.run_coroutine_threadsafe(
                 processor.process_audio(audio.tobytes()), loop
             )
