@@ -43,6 +43,8 @@ def get_model_size(lang: str, speed: str) -> str:
 
 DEFAULT_LANGUAGE = "Deutsch"
 
+SPACE_HOLD_TIME_MS = 300
+
 # Default static prompts fed to Whisper before every audio chunk.
 # A prompt ending mid-sentence with a comma primes Whisper to treat short
 # pauses as continuation rather than sentence boundaries.

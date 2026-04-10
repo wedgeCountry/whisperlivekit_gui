@@ -20,7 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
 
-from transcribe_app.config import LANGUAGE_OPTS, get_model_size
+from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
 from ..engine import EngineManager, loading_status
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
@@ -219,7 +219,7 @@ class TranscriptionApp:
         if str(self._record_btn.cget("state")) == tk.DISABLED:
             return None  # model not ready — let space through normally
         self._space_held = True
-        self._space_after_id = self.root.after(3000, self._on_space_record)
+        self._space_after_id = self.root.after(SPACE_HOLD_TIME_MS, self._on_space_record)
         return "break"  # prevent text widget from inserting a space immediately
 
     def _on_space_record(self) -> None:
@@ -272,6 +272,7 @@ class TranscriptionApp:
         self._record_btn.config(
             text="⏺  Record",
             bg=C_ACCENT, activebackground=C_ACCENT_H,
+            state=tk.DISABLED,
         )
         hoverable(self._record_btn, C_ACCENT, C_ACCENT_H)
         self._status_var.set("Processing remaining audio…")
@@ -298,6 +299,7 @@ class TranscriptionApp:
                         _, committed = msg
                         self._set_text(committed, "")
                         self._postprocess()
+                        self._record_btn.config(state=tk.NORMAL)
         except queue.Empty:
             pass
 

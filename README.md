@@ -7,6 +7,21 @@ https://claude.ai
 
 ---
 
+## Architecture notes
+
+### Post-processing timing
+
+Clicking **Stop** (or releasing Space after push-to-talk) does **not** immediately trigger post-processing. The sequence is:
+
+1. The microphone stream is closed and a flush signal (`None`) is sent to the Whisper processor.
+2. The Whisper model continues running on a background thread until all queued audio has been transcribed.
+3. Only once the model signals that it is fully done does the UI receive the `finalise` event.
+4. Post-processing (voice-command substitution, markdown rendering) then runs on the final committed text.
+
+As a result, the Record button stays disabled until post-processing is complete and the text area shows its final content.
+
+---
+
 ## Running from source
 
 ```bash
