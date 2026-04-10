@@ -42,6 +42,7 @@ class TranscriptionApp:
         self._settings: Settings    = settings_io.load()
         self._recording: bool       = False
         self._space_held: bool      = False   # push-to-talk state
+        self._popup: tk.Toplevel | None = None  # at most one popup open at a time
         self._ui_queue: queue.Queue = queue.Queue()
 
         # Display state
@@ -428,9 +429,26 @@ class TranscriptionApp:
             else f"Ready  ·  {self._settings.language} model loaded"
         ))
 
+    # ── Popup guard ────────────────────────────────────────────────────────────
+
+    def _popup_open(self) -> bool:
+        """Return True and raise the existing popup if one is already open."""
+        if self._popup is not None and self._popup.winfo_exists():
+            self._popup.lift()
+            self._popup.focus_set()
+            return True
+        self._popup = None
+        return False
+
+    def _register_popup(self, win: tk.Toplevel) -> None:
+        self._popup = win
+        win.bind("<Destroy>", lambda _: setattr(self, "_popup", None), add=True)
+
     # ── Edit menu dialogs ──────────────────────────────────────────────────────
 
     def _open_voice_style(self) -> None:
+        if self._popup_open():
+            return
         from .dialogs.voice_style_dialog import VoiceStyleDialog
 
         def on_save(new: Settings) -> None:
@@ -447,16 +465,20 @@ class TranscriptionApp:
             ):
                 self._reload_engine(new.language)
 
-        VoiceStyleDialog(self.root, self._settings, on_save)
+        dialog = VoiceStyleDialog(self.root, self._settings, on_save)
+        self._register_popup(dialog._win)
 
     def _open_mic_test(self) -> None:
+        if self._popup_open():
+            return
         from .mic_test import MicTestWindow
 
         def _on_device_save(new: Settings) -> None:
             self._settings = new
             settings_io.save(self._settings)
 
-        MicTestWindow(self.root, self._settings, _on_device_save)
+        win = MicTestWindow(self.root, self._settings, _on_device_save)
+        self._register_popup(win._win)
 
     # ── Shutdown ───────────────────────────────────────────────────────────────
 
