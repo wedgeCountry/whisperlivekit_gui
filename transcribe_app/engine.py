@@ -86,7 +86,7 @@ class EngineManager:
 
     # ── Startup ───────────────────────────────────────────────────────────────
 
-    def start(self, lang: str, prompt: str) -> None:
+    def start(self, lang: str, prompt: str, speed: str = "normal") -> None:
         """Spin up the background asyncio thread and load the initial model."""
         def _run() -> None:
             global _AudioProcessor, _TranscriptionEngine, _WhisperLiveKitConfig
@@ -98,20 +98,20 @@ class EngineManager:
 
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self._load_engine(lang, prompt))
+            self._loop.run_until_complete(self._load_engine(lang, prompt, speed))
             self._loop.run_forever()
 
         threading.Thread(target=_run, daemon=True).start()
 
     # ── Engine lifecycle ──────────────────────────────────────────────────────
 
-    def reload(self, lang: str, prompt: str) -> None:
-        """Hot-reload the model (e.g. after a language change). UI-thread safe."""
-        asyncio.run_coroutine_threadsafe(self._load_engine(lang, prompt), self._loop)
+    def reload(self, lang: str, prompt: str, speed: str = "normal") -> None:
+        """Hot-reload the model (e.g. after a language/speed change). UI-thread safe."""
+        asyncio.run_coroutine_threadsafe(self._load_engine(lang, prompt, speed), self._loop)
 
-    async def _load_engine(self, lang: str, prompt: str) -> None:
+    async def _load_engine(self, lang: str, prompt: str, speed: str = "normal") -> None:
         opts       = LANGUAGE_OPTS[lang]
-        model_size = opts["model_size"]
+        model_size = opts["model_sizes"][speed]
         fallback   = opts["fallback_model_size"]
         lan        = opts["lan"]
         self._lang = lang

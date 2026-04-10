@@ -20,7 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
 
-from transcribe_app.config import LANGUAGE_OPTS
+from transcribe_app.config import LANGUAGE_OPTS, get_model_size
 from ..engine import EngineManager, loading_status
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
@@ -63,7 +63,11 @@ class TranscriptionApp:
 
         apply_ttk_style(root)
         self._build_ui()
-        self._mgr.start(self._settings.language, self._settings.prompts[self._settings.language])
+        self._mgr.start(
+            self._settings.language,
+            self._settings.prompts[self._settings.language],
+            self._settings.model_speed,
+        )
         self._poll_ui()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -161,7 +165,7 @@ class TranscriptionApp:
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=3, column=0, sticky="ew")
         self._status_var = tk.StringVar(
             value=loading_status(
-                LANGUAGE_OPTS[self._settings.language]["model_size"],
+                get_model_size(self._settings.language, self._settings.model_speed),
                 self._settings.language,
             )
         )
@@ -191,9 +195,9 @@ class TranscriptionApp:
         if self._recording:
             self._stop_recording()
         self._record_btn.config(state=tk.DISABLED)
-        self._status_var.set(loading_status(LANGUAGE_OPTS[lang]["model_size"], lang))
+        self._status_var.set(loading_status(get_model_size(lang, self._settings.model_speed), lang))
         self.root.config(cursor="watch")
-        self._mgr.reload(lang, self._settings.prompts[lang])
+        self._mgr.reload(lang, self._settings.prompts[lang], self._settings.model_speed)
 
     # ── Recording ──────────────────────────────────────────────────────────────
 
@@ -432,10 +436,15 @@ class TranscriptionApp:
         def on_save(new: Settings) -> None:
             old_lang   = self._settings.language
             old_prompt = self._settings.prompts[old_lang]
+            old_speed  = self._settings.model_speed
             self._settings = new
             settings_io.save(self._settings)
             self._lang_var.set(new.language)
-            if new.language != old_lang or new.prompts[new.language] != old_prompt:
+            if (
+                new.language != old_lang
+                or new.prompts[new.language] != old_prompt
+                or new.model_speed != old_speed
+            ):
                 self._reload_engine(new.language)
 
         VoiceStyleDialog(self.root, self._settings, on_save)

@@ -23,7 +23,8 @@ _SETTINGS_FILE = _CONFIG_DIR / "settings.json"
 class Settings:
     language:     str            = DEFAULT_LANGUAGE
     prompts:      dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PROMPTS))
-    input_device: int | None     = None  # sounddevice device index; None = system default
+    input_device: int | None     = None   # sounddevice device index; None = system default
+    model_speed:  str            = "fast"    # "fast" or "normal"
 
 
 def load() -> Settings:
@@ -39,6 +40,9 @@ def load() -> Settings:
     raw_device = data.get("input_device")
     input_device = int(raw_device) if isinstance(raw_device, (int, float)) else None
 
+    raw_speed = data.get("model_speed", "normal")
+    model_speed = raw_speed if raw_speed in ("fast", "normal") else "normal"
+
     return Settings(
         language=lang,
         prompts={
@@ -46,6 +50,7 @@ def load() -> Settings:
             for k in LANGUAGE_OPTS
         },
         input_device=input_device,
+        model_speed=model_speed,
     )
 
 
@@ -58,6 +63,7 @@ def save(s: Settings) -> None:
                     "language":     s.language,
                     "prompts":      s.prompts,
                     "input_device": s.input_device,
+                    "model_speed":  s.model_speed,
                 },
                 indent=2,
             ),

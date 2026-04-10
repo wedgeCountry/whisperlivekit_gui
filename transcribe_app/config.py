@@ -17,18 +17,31 @@ CHUNK_SECONDS = 0.1
 # ── Language definitions ───────────────────────────────────────────────────────
 LANGUAGE_OPTS: dict[str, dict] = {
     "English": dict(
-        model_size="large-v3-turbo" if GPU else "medium.en",
+        # fast  → small (CPU) or medium (GPU)
+        # normal→ medium (CPU) or large-v3-turbo (GPU)
+        model_sizes={
+            "fast":   "small.en"         if not GPU else "medium.en",
+            "normal": "medium.en"        if not GPU else "large-v3-turbo",
+        },
         fallback_model_size="medium.en",
         lan="en",
     ),
     "Deutsch": dict(
-        model_size="large-v3-turbo" if GPU else "medium",
+        model_sizes={
+            "fast":   "small"            if not GPU else "medium",
+            "normal": "medium"           if not GPU else "large-v3-turbo",
+        },
         fallback_model_size="medium",
         lan="de",
     ),
 }
 
-DEFAULT_LANGUAGE = "English"
+
+def get_model_size(lang: str, speed: str) -> str:
+    """Return the model-size string for the given language and speed ('fast'/'normal')."""
+    return LANGUAGE_OPTS[lang]["model_sizes"][speed]
+
+DEFAULT_LANGUAGE = "Deutsch"
 
 # Default static prompts fed to Whisper before every audio chunk.
 # A prompt ending mid-sentence with a comma primes Whisper to treat short
