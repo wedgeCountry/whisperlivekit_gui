@@ -24,17 +24,24 @@ _CMDS: list[tuple] = [
 ]
 
 
-def apply_commands(text: str) -> str | None:
-    """Apply voice-command substitutions to the last 3 words only.
+def apply_commands(text: str, context: str = "") -> str | None:
+    """Apply voice-command substitutions to the last 3 words relative to the cursor.
 
+    context is the text before `text` (e.g. the session prefix up to the cursor) —
+    used only to locate the 3-word window correctly; it is never modified.
     Returns the modified string if any pattern matched, or None if nothing changed.
     """
-    word_spans = [(m.start(), m.end()) for m in re.finditer(r'\S+', text)]
+    combined = context + text
+    word_spans = [(m.start(), m.end()) for m in re.finditer(r'\S+', combined)]
+    text_start = len(context)
+
     if len(word_spans) <= 3:
-        head, tail = "", text
+        tail_offset = 0
     else:
-        split_pos = word_spans[-3][0]
-        head, tail = text[:split_pos], text[split_pos:]
+        tail_offset = max(word_spans[-3][0] - text_start, 0)
+
+    head = text[:tail_offset]
+    tail = text[tail_offset:]
 
     new_tail = tail
     for pattern, replacement in _CMDS:

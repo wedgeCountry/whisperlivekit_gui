@@ -48,6 +48,7 @@ class TranscriptionApp:
 
         # Display state
         self._session_prefix:     str   = ""
+        self._session_suffix:     str   = ""   # text after cursor, preserved during recording
         self._last_raw_committed: str   = ""
         self._absorbed_committed: str   = ""
         self._last_text_time:     float = 0.0
@@ -249,16 +250,18 @@ class TranscriptionApp:
         )
         hoverable(self._record_btn, C_DANGER, C_DANGER_H)
         self._status_var.set("Recording…")
+
+        # Capture cursor position before disabling the widget
+        cursor = self._text.index(tk.INSERT)
+        self._session_prefix    = self._text.get("1.0", cursor)
+        self._session_suffix    = self._text.get(cursor, "end-1c")
+        self._last_raw_committed = ""
+        self._absorbed_committed = ""
+        self._last_text_time     = time.monotonic()
+        self._last_display_sig   = ""
+
         self._text.config(state=tk.DISABLED)
         self._text.edit_reset()
-
-        existing = self._text.get("1.0", tk.END).rstrip("\n")
-        self._session_prefix     = (existing + "\n") if existing else ""
-        self._last_raw_committed  = ""
-        self._absorbed_committed  = ""
-        self._last_text_time      = time.monotonic()
-        self._last_display_sig    = ""
-
         self._mgr.start_session()
 
     def _stop_recording(self) -> None:
@@ -328,8 +331,11 @@ class TranscriptionApp:
                 self._absorbed_committed = ""
 
         prompt = self._settings.prompts[self._settings.language]
-        display_committed = apply_commands(clean(strip_prompt_leak(display_committed, prompt))) or display_committed
-        display_buffer    = clean(strip_prompt_leak(buffer, prompt))
+        display_committed = apply_commands(
+            clean(strip_prompt_leak(display_committed, prompt)),
+            context=self._session_prefix,
+        ) or display_committed
+        display_buffer = clean(strip_prompt_leak(buffer, prompt))
 
         sig = display_committed + "\x00" + display_buffer
         if sig != self._last_display_sig:
@@ -344,13 +350,21 @@ class TranscriptionApp:
             self._text.insert(tk.END, display_committed)
         if display_buffer:
             self._text.insert(tk.END, (" " if display_committed else "") + display_buffer, "buffer")
+        if self._session_suffix:
+            self._text.insert(tk.END, self._session_suffix)
         self._render_markdown()
         self._end_write()
         self._text.see(tk.END)
 
     def _restructure(self) -> None:
-        """Apply clean + apply_commands to the whole text area after a silence pause."""
-        current = self._text.get("1.0", tk.END).rstrip()
+        """Apply clean + apply_commands to the committed text after a silence pause."""
+        full = self._text.get("1.0", tk.END)
+        # Exclude the preserved suffix so commands aren't matched against it
+        if self._session_suffix:
+            idx = full.rfind(self._session_suffix)
+            current = (full[:idx] if idx >= 0 else full).rstrip()
+        else:
+            current = full.rstrip()
         if not current:
             self._last_text_time = 0.0
             return
@@ -366,6 +380,8 @@ class TranscriptionApp:
         self._begin_write()
         self._text.delete("1.0", tk.END)
         self._text.insert(tk.END, self._session_prefix)
+        if self._session_suffix:
+            self._text.insert(tk.END, self._session_suffix)
         self._render_markdown()
         self._end_write()
         self._text.see(tk.END)
@@ -395,6 +411,8 @@ class TranscriptionApp:
         self._begin_write()
         self._text.delete("1.0", tk.END)
         self._end_write()
+        self._session_prefix = ""
+        self._session_suffix = ""
 
     def _copy_text(self) -> None:
         content = self._text.get("1.0", tk.END).strip()
