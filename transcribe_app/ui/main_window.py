@@ -94,7 +94,7 @@ class TranscriptionApp:
 
         self._edit_menu = tk.Menu(self._menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
         self._menubar.add_cascade(label=t("menu.edit"), menu=self._edit_menu)
-        self._edit_menu.add_command(label=t("menu.edit.voice_style"), command=self._open_voice_style)
+        self._edit_menu.add_command(label=t("menu.edit.settings"), command=self._open_settings)
 
         # Row 0 — header
         header = tk.Frame(self.root, bg=C_HEADER)
@@ -102,12 +102,13 @@ class TranscriptionApp:
         header.columnconfigure(1, weight=1)
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=0, column=0, sticky="sew")
 
-        tk.Label(
-            header, text="Live Transcription",
+        self._title_label = tk.Label(
+            header, text=t("window.title"),
             bg=C_HEADER, fg=C_TEXT,
             font=("TkDefaultFont", 13, "bold"),
             padx=16, pady=12,
-        ).grid(row=0, column=0, sticky="w")
+        )
+        self._title_label.grid(row=0, column=0, sticky="w")
 
         lang_frame = tk.Frame(header, bg=C_HEADER)
         lang_frame.grid(row=0, column=2, padx=12, pady=8, sticky="e")
@@ -132,12 +133,12 @@ class TranscriptionApp:
             speed_frame, text=t("header.model"), bg=C_HEADER, fg=C_MUTED, font=F_SMALL
         )
         self._model_label.pack(side=tk.LEFT, padx=(0, 6))
-        self._speed_var = tk.StringVar(value=self._settings.model_speed)
+        self._speed_var = tk.StringVar(value=t(f"speed.{self._settings.model_speed}"))
         self._speed_combo = ttk.Combobox(
             speed_frame,
             textvariable=self._speed_var,
-            values=["fast", "normal"],
-            state="readonly", width=7,
+            values=[t("speed.fast"), t("speed.normal")],
+            state="readonly", width=8,
             font=("TkDefaultFont", 10),
         )
         self._speed_combo.pack(side=tk.LEFT)
@@ -237,8 +238,9 @@ class TranscriptionApp:
         self._reload_engine(lang)
 
     def _on_speed_change(self, _event=None) -> None:
-        speed = self._speed_var.get()
-        if speed == self._settings.model_speed:
+        label = self._speed_var.get()
+        speed = next((s for s in ("fast", "normal") if t(f"speed.{s}") == label), None)
+        if speed is None or speed == self._settings.model_speed:
             return
         self._settings = replace(self._settings, model_speed=speed)
         settings_io.save(self._settings)
@@ -249,14 +251,19 @@ class TranscriptionApp:
         code = next((k for k, v in UI_LANGUAGES.items() if v == display), "en")
         if code == self._settings.ui_language:
             return
-        self._settings = replace(self._settings, ui_language=code)
+        # UI_LANGUAGES values ("English", "Deutsch") are exactly the LANGUAGE_OPTS keys
+        trans_lang = UI_LANGUAGES[code]
+        self._settings = replace(self._settings, ui_language=code, language=trans_lang)
         settings_io.save(self._settings)
+        self._lang_var.set(trans_lang)
         set_language(code)
         self._apply_ui_lang()
+        self._reload_engine(trans_lang)
 
     def _apply_ui_lang(self) -> None:
         """Re-render all static UI text in the active interface language."""
         self.root.title(t("window.title"))
+        self._title_label.config(text=t("window.title"))
         # Menu bar cascades
         self._menubar.entryconfigure(0, label=t("menu.file"))
         self._menubar.entryconfigure(1, label=t("menu.edit"))
@@ -264,12 +271,15 @@ class TranscriptionApp:
         self._file_menu.entryconfigure(0, label=t("menu.file.save"))
         self._file_menu.entryconfigure(1, label=t("menu.file.load"))
         # Edit menu entries
-        self._edit_menu.entryconfigure(0, label=t("menu.edit.voice_style"))
+        self._edit_menu.entryconfigure(0, label=t("menu.edit.settings"))
         # Header labels
         self._lang_label.config(text=t("header.language"))
         self._model_label.config(text=t("header.model"))
         self._ui_label.config(text=t("header.interface"))
-        # Buttons (only record btn text depends on recording state)
+        # Speed combo: update values and re-select the translated label for the current speed
+        self._speed_combo.config(values=[t("speed.fast"), t("speed.normal")])
+        self._speed_var.set(t(f"speed.{self._settings.model_speed}"))
+        # Buttons (record label depends on recording state)
         if not self._recording:
             self._record_btn.config(text=t("btn.record"))
         self._clear_btn.config(text=t("btn.clear"))
@@ -602,10 +612,10 @@ class TranscriptionApp:
 
     # ── Edit menu dialogs ──────────────────────────────────────────────────────
 
-    def _open_voice_style(self) -> None:
+    def _open_settings(self) -> None:
         if self._popup_open():
             return
-        from .dialogs.voice_style_dialog import VoiceStyleDialog
+        from .dialogs.settings_dialog import SettingsDialog
 
         def on_save(new: Settings) -> None:
             old_lang   = self._settings.language
@@ -614,7 +624,7 @@ class TranscriptionApp:
             self._settings = new
             settings_io.save(self._settings)
             self._lang_var.set(new.language)
-            self._speed_var.set(new.model_speed)
+            self._speed_var.set(t(f"speed.{new.model_speed}"))
             if (
                 new.language != old_lang
                 or new.prompts[new.language] != old_prompt
@@ -622,7 +632,7 @@ class TranscriptionApp:
             ):
                 self._reload_engine(new.language)
 
-        dialog = VoiceStyleDialog(self.root, self._settings, on_save)
+        dialog = SettingsDialog(self.root, self._settings, on_save)
         self._register_popup(dialog._win)
 
     def _open_mic_test(self) -> None:
