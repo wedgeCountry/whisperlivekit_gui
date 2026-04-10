@@ -58,6 +58,15 @@ transcribe_app/
 | "newline" / "neue Zeile" | `\n` |
 | "new paragraph" / "neuer Absatz" | `\n\n` |
 | "heading …" / "Überschrift …" (at sentence start) | `\n# …` |
+| "Punkt" / "period" | `. ` |
+| "Komma" / "comma" | `, ` |
+| "Fragezeichen" / "question mark" | `? ` |
+| "Ausrufezeichen" / "exclamation mark" | `! ` |
+| "Doppelpunkt" / "colon" | `: ` |
+| "Semikolon" / "semicolon" | `; ` |
+| "Bindestrich" / "hyphen" / "dash" | `-` |
+| "erstens" … "zehntens" | `1.` … `10.` |
+| "firstly" … "tenth" | `1.` … `10.` |
 
 ## Model cache location
 

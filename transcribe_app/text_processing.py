@@ -15,12 +15,52 @@ def clean(text: str) -> str:
 # at the start of a segment to avoid accidental matches in natural speech.
 
 _CMDS: list[tuple] = [
+    # ── Structural ────────────────────────────────────────────────────────────
     (re.compile(r"[ \t]*\bnewline[.,]?\s*",          re.I),       "\n"),
     (re.compile(r"[ \t]*\bneue\s+zeile[.,]?\s*",     re.I),       "\n"),
     (re.compile(r"[ \t]*\bnew\s+paragraph[.,]?\s*",  re.I),       "\n\n"),
     (re.compile(r"[ \t]*\bneuer?\s+absatz[.,]?\s*",  re.I),       "\n\n"),
     (re.compile(r"(?:(?:^|(?<=[.!?\n]))\s*)heading[.,]?\s+",      re.I | re.M), "\n# "),
     (re.compile(r"(?:(?:^|(?<=[.!?\n]))\s*)überschrift[.,]?\s+",  re.I | re.M), "\n# "),
+
+    # ── Punctuation (DE + EN) ─────────────────────────────────────────────────
+    (re.compile(r"\bpunkt\b,?\s*",           re.I), ". "),
+    (re.compile(r"\bperiod\b,?\s*",          re.I), ". "),
+    (re.compile(r"\bkomma\b,?\s*",           re.I), ", "),
+    (re.compile(r"\bcomma\b,?\s*",           re.I), ", "),
+    (re.compile(r"\bfragezeichen\b,?\s*",    re.I), "? "),
+    (re.compile(r"\bquestion\s+mark\b,?\s*", re.I), "? "),
+    (re.compile(r"\bbindestrich\b,?\s*",     re.I), "-"),
+    (re.compile(r"\bhyphen\b,?\s*",          re.I), "-"),
+    (re.compile(r"\bdash\b,?\s*",            re.I), "-"),
+    (re.compile(r"\bausrufezeichen\b,?\s*",  re.I), "! "),
+    (re.compile(r"\bexclamation\s+mark\b,?\s*", re.I), "! "),
+    (re.compile(r"\bdoppelpunkt\b,?\s*",     re.I), ": "),
+    (re.compile(r"\bcolon\b,?\s*",           re.I), ": "),
+    (re.compile(r"\bsemikolon\b,?\s*",       re.I), "; "),
+    (re.compile(r"\bsemicolon\b,?\s*",       re.I), "; "),
+
+    # ── Ordinal list markers (DE + EN) ────────────────────────────────────────
+    (re.compile(r"\berstens\b[,.]?\s*",      re.I), "1. "),
+    (re.compile(r"\bzweitens\b[,.]?\s*",     re.I), "2. "),
+    (re.compile(r"\bdrittens\b[,.]?\s*",     re.I), "3. "),
+    (re.compile(r"\bviertens\b[,.]?\s*",     re.I), "4. "),
+    (re.compile(r"\bfünftens\b[,.]?\s*",     re.I), "5. "),
+    (re.compile(r"\bsechstens\b[,.]?\s*",    re.I), "6. "),
+    (re.compile(r"\bsiebte?ns?\b[,.]?\s*",   re.I), "7. "),
+    (re.compile(r"\bachtens\b[,.]?\s*",      re.I), "8. "),
+    (re.compile(r"\bneuntens\b[,.]?\s*",     re.I), "9. "),
+    (re.compile(r"\bzehntens\b[,.]?\s*",     re.I), "10. "),
+    (re.compile(r"\bfirst(?:ly)?\b[,.]?\s*", re.I), "1. "),
+    (re.compile(r"\bsecond(?:ly)?\b[,.]?\s*",re.I), "2. "),
+    (re.compile(r"\bthird(?:ly)?\b[,.]?\s*", re.I), "3. "),
+    (re.compile(r"\bfourth(?:ly)?\b[,.]?\s*",re.I), "4. "),
+    (re.compile(r"\bfifth(?:ly)?\b[,.]?\s*", re.I), "5. "),
+    (re.compile(r"\bsixth(?:ly)?\b[,.]?\s*", re.I), "6. "),
+    (re.compile(r"\bseventh(?:ly)?\b[,.]?\s*",re.I),"7. "),
+    (re.compile(r"\beighth(?:ly)?\b[,.]?\s*",re.I), "8. "),
+    (re.compile(r"\bninth(?:ly)?\b[,.]?\s*", re.I), "9. "),
+    (re.compile(r"\btenth(?:ly)?\b[,.]?\s*", re.I), "10. "),
 ]
 
 
