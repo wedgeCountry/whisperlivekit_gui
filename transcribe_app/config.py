@@ -49,8 +49,10 @@ DEFAULT_LANGUAGE = "Deutsch"
 DEFAULT_PROMPTS: dict[str, str] = {
     "English": "",
     "Deutsch": (
-        "Der Nutzer spricht mit Denkpausen. Wenn er eine Denkpause macht,"
-        " dann füge ein Leerzeichen ein."
+        "Diktat mit Sprachbefehlen: neue Zeile, neuer Absatz, Punkt, Komma, "
+        "Fragezeichen, Ausrufezeichen, Bindestrich, Doppelpunkt, Semikolon. "
+        "Erstens, zweitens, drittens, viertens, fünftens."
+        "Der Nutzer spricht mit Denkpausen. Wenn er eine Denkpause macht, dann füge ein Leerzeichen ein."
     ),
 }
 
