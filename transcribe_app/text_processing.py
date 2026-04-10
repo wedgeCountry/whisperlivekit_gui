@@ -42,26 +42,26 @@ _CMDS: list[tuple] = [
     (re.compile(r"\bsemicolon\b,?\s*",       re.I), "; "),
 
     # ── Ordinal list markers (DE + EN) ────────────────────────────────────────
-    (re.compile(r"\berstens\b[,.]?\s*",      re.I), "\n1. "),
-    (re.compile(r"\bzweitens\b[,.]?\s*",     re.I), "\n2. "),
-    (re.compile(r"\bdrittens\b[,.]?\s*",     re.I), "\n3. "),
-    (re.compile(r"\bviertens\b[,.]?\s*",     re.I), "\n4. "),
-    (re.compile(r"\bfünftens\b[,.]?\s*",     re.I), "\n5. "),
-    (re.compile(r"\bsechstens\b[,.]?\s*",    re.I), "\n6. "),
-    (re.compile(r"\bsiebte?ns?\b[,.]?\s*",   re.I), "\n7. "),
-    (re.compile(r"\bachtens\b[,.]?\s*",      re.I), "\n8. "),
-    (re.compile(r"\bneuntens\b[,.]?\s*",     re.I), "\n9. "),
-    (re.compile(r"\bzehntens\b[,.]?\s*",     re.I), "\n10. "),
-    (re.compile(r"\bfirst(?:ly)?\b[,.]?\s*", re.I), "\n1. "),
-    (re.compile(r"\bsecond(?:ly)?\b[,.]?\s*",re.I), "\n2. "),
-    (re.compile(r"\bthird(?:ly)?\b[,.]?\s*", re.I), "\n3. "),
-    (re.compile(r"\bfourth(?:ly)?\b[,.]?\s*",re.I), "\n4. "),
-    (re.compile(r"\bfifth(?:ly)?\b[,.]?\s*", re.I), "\n5. "),
-    (re.compile(r"\bsixth(?:ly)?\b[,.]?\s*", re.I), "\n6. "),
-    (re.compile(r"\bseventh(?:ly)?\b[,.]?\s*",re.I),"\n7. "),
-    (re.compile(r"\beighth(?:ly)?\b[,.]?\s*",re.I), "\n8. "),
-    (re.compile(r"\bninth(?:ly)?\b[,.]?\s*", re.I), "\n9. "),
-    (re.compile(r"\btenth(?:ly)?\b[,.]?\s*", re.I), "\n10. "),
+    (re.compile(r"\b\s+erstens\b[,.]?\s*",      re.I), "\n1. "),
+    (re.compile(r"\b\s+zweitens\b[,.]?\s*",     re.I), "\n2. "),
+    (re.compile(r"\b\s+drittens\b[,.]?\s*",     re.I), "\n3. "),
+    (re.compile(r"\b\s+viertens\b[,.]?\s*",     re.I), "\n4. "),
+    (re.compile(r"\b\s+fünftens\b[,.]?\s*",     re.I), "\n5. "),
+    (re.compile(r"\b\s+sechstens\b[,.]?\s*",    re.I), "\n6. "),
+    (re.compile(r"\b\s+siebe?n?t?e?ns?\b[,.]?\s*",   re.I), "\n7. "),
+    (re.compile(r"\b\s+achtens\b[,.]?\s*",      re.I), "\n8. "),
+    (re.compile(r"\b\s+neuntens\b[,.]?\s*",     re.I), "\n9. "),
+    (re.compile(r"\b\s+zehntens\b[,.]?\s*",     re.I), "\n10. "),
+    (re.compile(r"\b\s+first(?:ly)?\b[,.]?\s*", re.I), "\n1. "),
+    (re.compile(r"\b\s+second(?:ly)?\b[,.]?\s*",re.I), "\n2. "),
+    (re.compile(r"\b\s+third(?:ly)?\b[,.]?\s*", re.I), "\n3. "),
+    (re.compile(r"\b\s+fourth(?:ly)?\b[,.]?\s*",re.I), "\n4. "),
+    (re.compile(r"\b\s+fifth(?:ly)?\b[,.]?\s*", re.I), "\n5. "),
+    (re.compile(r"\b\s+sixth(?:ly)?\b[,.]?\s*", re.I), "\n6. "),
+    (re.compile(r"\b\s+seventh(?:ly)?\b[,.]?\s*",re.I),"\n7. "),
+    (re.compile(r"\b\s+eighth(?:ly)?\b[,.]?\s*",re.I), "\n8. "),
+    (re.compile(r"\b\s+ninth(?:ly)?\b[,.]?\s*", re.I), "\n9. "),
+    (re.compile(r"\b\s+tenth(?:ly)?\b[,.]?\s*", re.I), "\n10. "),
 ]
 
 
@@ -78,7 +78,7 @@ def apply_commands_full(text: str) -> str | None:
     new_text = re.sub(r"\n{3,}", "\n\n", new_text)
     if new_text == text:
         return None
-    return new_text.lstrip("\n")
+    return new_text
 
 
 # ── Prompt-leak removal ────────────────────────────────────────────────────────
