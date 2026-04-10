@@ -86,13 +86,13 @@ class TranscriptionApp:
         self.root.config(menu=menubar)
 
         file_menu = tk.Menu(menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
-        menubar.add_cascade(label="Datei", menu=file_menu)
+        menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Save as file…", command=self._save_file)
-        file_menu.add_command(label="Laden…",     command=self._load_file)
+        file_menu.add_command(label="Load…",         command=self._load_file)
 
         edit_menu = tk.Menu(menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
-        menubar.add_cascade(label="Bearbeiten", menu=edit_menu)
-        edit_menu.add_command(label="Stimme & Style Prompt…", command=self._open_voice_style)
+        menubar.add_cascade(label="Edit", menu=edit_menu)
+        edit_menu.add_command(label="Voice & Style Prompt…", command=self._open_voice_style)
 
         # Row 0 — header
         header = tk.Frame(self.root, bg=C_HEADER)
@@ -109,7 +109,7 @@ class TranscriptionApp:
 
         lang_frame = tk.Frame(header, bg=C_HEADER)
         lang_frame.grid(row=0, column=2, padx=12, pady=8, sticky="e")
-        tk.Label(lang_frame, text="Sprache", bg=C_HEADER, fg=C_MUTED, font=F_SMALL).pack(
+        tk.Label(lang_frame, text="Language", bg=C_HEADER, fg=C_MUTED, font=F_SMALL).pack(
             side=tk.LEFT, padx=(0, 6)
         )
         self._lang_var = tk.StringVar(value=self._settings.language)
@@ -125,7 +125,7 @@ class TranscriptionApp:
 
         speed_frame = tk.Frame(header, bg=C_HEADER)
         speed_frame.grid(row=0, column=3, padx=(0, 12), pady=8, sticky="e")
-        tk.Label(speed_frame, text="Modell", bg=C_HEADER, fg=C_MUTED, font=F_SMALL).pack(
+        tk.Label(speed_frame, text="Model", bg=C_HEADER, fg=C_MUTED, font=F_SMALL).pack(
             side=tk.LEFT, padx=(0, 6)
         )
         self._speed_var = tk.StringVar(value=self._settings.model_speed)
@@ -495,12 +495,12 @@ class TranscriptionApp:
             return
         path = filedialog.asksaveasfilename(
             defaultextension=".txt",
-            filetypes=[("Textdatei", "*.txt"), ("Markdown", "*.md"), ("Alle Dateien", "*")],
+            filetypes=[("Text file", "*.txt"), ("Markdown", "*.md"), ("All files", "*")],
         )
         if not path:
             return
         Path(path).write_text(text, encoding="utf-8")
-        self._status_var.set(f"Gespeichert: {Path(path).name}")
+        self._status_var.set(f"Saved: {Path(path).name}")
         self.root.after(3000, lambda: self._status_var.set(
             "Recording…" if self._recording
             else f"Ready  ·  {self._settings.language} model loaded"
@@ -508,7 +508,7 @@ class TranscriptionApp:
 
     def _load_file(self) -> None:
         path = filedialog.askopenfilename(
-            filetypes=[("Textdatei", "*.txt"), ("Markdown", "*.md"), ("Alle Dateien", "*")],
+            filetypes=[("Text file", "*.txt"), ("Markdown", "*.md"), ("All files", "*")],
         )
         if not path:
             return
@@ -523,7 +523,7 @@ class TranscriptionApp:
         self._last_display_sig    = ""
         self._last_text_time      = 0.0
         self._render_markdown()
-        self._status_var.set(f"Geladen: {Path(path).name}")
+        self._status_var.set(f"Loaded: {Path(path).name}")
         self.root.after(3000, lambda: self._status_var.set(
             "Recording…" if self._recording
             else f"Ready  ·  {self._settings.language} model loaded"

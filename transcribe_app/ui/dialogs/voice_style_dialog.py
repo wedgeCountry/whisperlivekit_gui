@@ -19,7 +19,7 @@ class VoiceStyleDialog:
         self._on_save  = on_save
 
         self._win = tk.Toplevel(parent)
-        self._win.title("Stimme & Style Prompt")
+        self._win.title("Voice & Style Prompt")
         self._win.resizable(False, False)
         self._win.configure(bg=C_BG)
         self._win.grab_set()
@@ -32,7 +32,7 @@ class VoiceStyleDialog:
         outer.columnconfigure(1, weight=1)
 
         # Row 0 — language
-        tk.Label(outer, text="Stimme:", bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+        tk.Label(outer, text="Language:", bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
             row=0, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
         )
         self._lang_var = tk.StringVar(value=self._settings.language)
@@ -46,7 +46,7 @@ class VoiceStyleDialog:
         ).grid(row=0, column=1, sticky="w", pady=(0, 10))
 
         # Row 1 — model speed
-        tk.Label(outer, text="Modell:", bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+        tk.Label(outer, text="Model:", bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
             row=1, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
         )
         speed_frame = tk.Frame(outer, bg=C_BG)
@@ -92,8 +92,8 @@ class VoiceStyleDialog:
 
         btn_row = tk.Frame(outer, bg=C_BG)
         btn_row.grid(row=3, column=0, columnspan=2, sticky="e")
-        make_btn(btn_row, "Zurücksetzen", self._reset).pack(side=tk.LEFT, padx=(0, 8))
-        make_btn(btn_row, "Speichern", self._save, primary=True).pack(side=tk.LEFT)
+        make_btn(btn_row, "Reset", self._reset).pack(side=tk.LEFT, padx=(0, 8))
+        make_btn(btn_row, "Save", self._save, primary=True).pack(side=tk.LEFT)
 
     def _update_speed_hint(self) -> None:
         lang  = self._lang_var.get()
