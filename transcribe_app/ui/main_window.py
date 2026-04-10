@@ -312,7 +312,7 @@ class TranscriptionApp:
                 self._absorbed_committed = ""
 
         prompt = self._settings.prompts[self._settings.language]
-        display_committed = apply_commands(clean(strip_prompt_leak(display_committed, prompt)))
+        display_committed = apply_commands(clean(strip_prompt_leak(display_committed, prompt))) or display_committed
         display_buffer    = clean(strip_prompt_leak(buffer, prompt))
 
         sig = display_committed + "\x00" + display_buffer
@@ -339,6 +339,9 @@ class TranscriptionApp:
             self._last_text_time = 0.0
             return
         restructured = apply_commands(clean(current))
+        if restructured is None:
+            self._last_text_time = 0.0
+            return
         self._session_prefix     = restructured + "\n"
         self._absorbed_committed = self._last_raw_committed
         self._last_text_time     = 0.0
