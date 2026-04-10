@@ -12,6 +12,7 @@ Thread model
 """
 
 import asyncio
+import sys
 import threading
 from pathlib import Path
 from typing import Callable
@@ -48,6 +49,34 @@ def loading_status(model_size: str, lang: str) -> str:
     device = "GPU" if GPU else "CPU"
     verb   = "Lade" if _is_model_cached(model_size) else "Lade herunter"
     return f"{verb}: {model_size}  ({lang} · {device})…"
+
+
+# ── tqdm progress capture ──────────────────────────────────────────────────────
+
+class _TqdmCapture:
+    """File-like object that intercepts tqdm progress lines and forwards them
+    to a status callback.  Assigned to sys.stderr during model downloads so
+    that the tqdm bar appears in the UI status bar instead of the terminal.
+    """
+
+    def __init__(self, on_status: Callable[[str], None], original: object) -> None:
+        self._on_status = on_status
+        self._original  = original
+
+    def write(self, s: str) -> int:
+        # tqdm writes lines like "\r82%|████| 376M/461M [00:13<00:12, 7.32MiB/s]"
+        stripped = s.strip("\r\n ")
+        if stripped and "%|" in stripped:
+            self._on_status(stripped)
+        elif stripped:
+            self._original.write(s)
+        return len(s)
+
+    def flush(self) -> None:
+        self._original.flush()
+
+    def isatty(self) -> bool:
+        return True  # keep tqdm in \r-refresh mode so each write is a full bar update
 
 
 # ── EngineManager ──────────────────────────────────────────────────────────────
@@ -90,17 +119,29 @@ class EngineManager:
     def start(self, lang: str, prompt: str, speed: str = "normal") -> None:
         """Spin up the background asyncio thread and load the initial model."""
         def _run() -> None:
-            global _AudioProcessor, _TranscriptionEngine, _WhisperLiveKitConfig
-            from whisperlivekit import AudioProcessor as AP, TranscriptionEngine as TE  # noqa: PLC0415
-            from whisperlivekit.config import WhisperLiveKitConfig as WLC               # noqa: PLC0415
-            _AudioProcessor       = AP
-            _TranscriptionEngine  = TE
-            _WhisperLiveKitConfig = WLC
+            import socket  # noqa: PLC0415
+            # Set a generous default socket timeout so that model downloads from
+            # openaipublic.azureedge.net or Hugging Face never hang forever in a
+            # frozen exe.  The timeout is reset to None once the loop is running.
+            socket.setdefaulttimeout(600)
+            try:
+                global _AudioProcessor, _TranscriptionEngine, _WhisperLiveKitConfig
+                from whisperlivekit import AudioProcessor as AP, TranscriptionEngine as TE  # noqa: PLC0415
+                from whisperlivekit.config import WhisperLiveKitConfig as WLC               # noqa: PLC0415
+                _AudioProcessor       = AP
+                _TranscriptionEngine  = TE
+                _WhisperLiveKitConfig = WLC
 
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self._load_engine(lang, prompt, speed))
-            self._loop.run_forever()
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+                self._loop.run_until_complete(self._load_engine(lang, prompt, speed))
+                socket.setdefaulttimeout(None)  # restore: don't affect audio streaming
+                self._loop.run_forever()
+            except Exception as exc:  # noqa: BLE001
+                # Surface any unhandled error instead of silently killing the thread
+                # (which would leave the UI stuck on the loading screen forever).
+                self._on_status(f"Kritischer Fehler: {exc!r}")
+                self._on_ready()
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -128,6 +169,11 @@ class EngineManager:
                 static_init_prompt=prompt if prompt.strip() else None,
             )
 
+        _orig_stderr = None
+        if not _is_model_cached(model_size):
+            _orig_stderr = sys.stderr
+            sys.stderr = _TqdmCapture(self._on_status, _orig_stderr)
+
         try:
             self._engine = _TranscriptionEngine(config=_make_cfg(model_size))
         except Exception as exc:
@@ -138,11 +184,19 @@ class EngineManager:
                 )
                 _TranscriptionEngine._instance = None
                 _TranscriptionEngine._initialized = False
-                self._engine = _TranscriptionEngine(config=_make_cfg(fallback))
+                try:
+                    self._engine = _TranscriptionEngine(config=_make_cfg(fallback))
+                except Exception as fallback_exc:
+                    self._on_status(f"Fehler: {fallback_exc}")
+                    self._on_ready()
+                    return
             else:
                 self._on_status(f"Fehler: {exc}")
                 self._on_ready()
                 return
+        finally:
+            if _orig_stderr is not None:
+                sys.stderr = _orig_stderr
 
         self._on_status(f"Bereit  ·  {lang} Modell geladen")
         self._on_ready()

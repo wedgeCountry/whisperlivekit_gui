@@ -65,12 +65,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # strip unused torch backends to reduce size
-        'torch.distributed',
-        'torch.testing',
-        'torch.ao',
-        'torch.onnx',
-        'torch.optim',
+        # safe to exclude: separate packages not installed in this venv
         'torchvision',
         'torchaudio',
         # not needed at runtime
