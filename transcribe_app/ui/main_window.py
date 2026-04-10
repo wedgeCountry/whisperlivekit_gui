@@ -42,6 +42,7 @@ class TranscriptionApp:
         self._settings: Settings    = settings_io.load()
         self._recording: bool       = False
         self._space_held: bool      = False   # push-to-talk state
+        self._space_after_id: str | None = None  # pending 3-s timer
         self._popup: tk.Toplevel | None = None  # at most one popup open at a time
         self._ui_queue: queue.Queue = queue.Queue()
 
@@ -178,8 +179,9 @@ class TranscriptionApp:
 
         self.root.config(cursor="watch")
 
-        # Push-to-talk: hold Space to record, release to stop
-        self.root.bind("<KeyPress-space>",   self._on_space_press)
+        # Push-to-talk: hold Space ≥ 3 s to record; shorter press inserts a space
+        self._text.bind("<KeyPress-space>",  self._on_space_press)   # intercept before Text class binding
+        self.root.bind("<KeyPress-space>",   self._on_space_press)   # catch when text not focused
         self.root.bind("<KeyRelease-space>", self._on_space_release)
 
     # ── Language selector ──────────────────────────────────────────────────────
@@ -208,21 +210,35 @@ class TranscriptionApp:
         else:
             self._start_recording()
 
-    def _on_space_press(self, event: tk.Event) -> None:
-        """Start recording while Space is held (push-to-talk)."""
+    def _on_space_press(self, event: tk.Event) -> str | None:
+        """Arm the 3-second push-to-talk timer on Space press."""
         if self._space_held or self._recording:
-            return  # ignore key-repeat or already recording via button
+            return "break"  # suppress key-repeat or extra presses during recording
         if str(self._record_btn.cget("state")) == tk.DISABLED:
-            return
+            return None  # model not ready — let space through normally
         self._space_held = True
-        self._start_recording()
+        self._space_after_id = self.root.after(3000, self._on_space_record)
+        return "break"  # prevent text widget from inserting a space immediately
+
+    def _on_space_record(self) -> None:
+        """Called after 3 continuous seconds — start recording."""
+        self._space_after_id = None
+        if self._space_held:
+            self._start_recording()
 
     def _on_space_release(self, event: tk.Event) -> None:
-        """Stop recording when Space is released."""
+        """On early release (< 3 s): insert a space.  After 3 s: stop recording."""
         if not self._space_held:
             return
         self._space_held = False
-        if self._recording:
+        if self._space_after_id is not None:
+            # Released before 3 s — cancel timer and insert a plain space
+            self.root.after_cancel(self._space_after_id)
+            self._space_after_id = None
+            self._begin_write()
+            self._text.insert(tk.INSERT, " ")
+            self._end_write()
+        elif self._recording:
             self._stop_recording()
 
     def _start_recording(self) -> None:
