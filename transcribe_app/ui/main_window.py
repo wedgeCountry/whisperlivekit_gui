@@ -22,7 +22,7 @@ from tkinter import filedialog, scrolledtext, ttk
 
 from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
 from ..engine import EngineManager, loading_status
-from ..i18n import UI_LANGUAGES, get_language, set_language, t
+from ..i18n import set_language, t
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
 from ..text_processing import apply_commands_full, clean, strip_prompt_leak
@@ -144,23 +144,6 @@ class TranscriptionApp:
         self._speed_combo.pack(side=tk.LEFT)
         self._speed_combo.bind("<<ComboboxSelected>>", self._on_speed_change)
 
-        ui_frame = tk.Frame(header, bg=C_HEADER)
-        ui_frame.grid(row=0, column=4, padx=(0, 12), pady=8, sticky="e")
-        self._ui_label = tk.Label(
-            ui_frame, text=t("header.interface"), bg=C_HEADER, fg=C_MUTED, font=F_SMALL
-        )
-        self._ui_label.pack(side=tk.LEFT, padx=(0, 6))
-        self._ui_lang_var = tk.StringVar(value=UI_LANGUAGES[self._settings.ui_language])
-        self._ui_lang_combo = ttk.Combobox(
-            ui_frame,
-            textvariable=self._ui_lang_var,
-            values=list(UI_LANGUAGES.values()),
-            state="readonly", width=8,
-            font=("TkDefaultFont", 10),
-        )
-        self._ui_lang_combo.pack(side=tk.LEFT)
-        self._ui_lang_combo.bind("<<ComboboxSelected>>", self._on_ui_lang_change)
-
         # Row 1 — text area
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=1, column=0, sticky="new")
         border_frame = tk.Frame(self.root, bg=C_BORDER)
@@ -246,20 +229,6 @@ class TranscriptionApp:
         settings_io.save(self._settings)
         self._reload_engine(self._settings.language)
 
-    def _on_ui_lang_change(self, _event=None) -> None:
-        display = self._ui_lang_var.get()
-        code = next((k for k, v in UI_LANGUAGES.items() if v == display), "en")
-        if code == self._settings.ui_language:
-            return
-        # UI_LANGUAGES values ("English", "Deutsch") are exactly the LANGUAGE_OPTS keys
-        trans_lang = UI_LANGUAGES[code]
-        self._settings = replace(self._settings, ui_language=code, language=trans_lang)
-        settings_io.save(self._settings)
-        self._lang_var.set(trans_lang)
-        set_language(code)
-        self._apply_ui_lang()
-        self._reload_engine(trans_lang)
-
     def _apply_ui_lang(self) -> None:
         """Re-render all static UI text in the active interface language."""
         self.root.title(t("window.title"))
@@ -275,7 +244,6 @@ class TranscriptionApp:
         # Header labels
         self._lang_label.config(text=t("header.language"))
         self._model_label.config(text=t("header.model"))
-        self._ui_label.config(text=t("header.interface"))
         # Speed combo: update values and re-select the translated label for the current speed
         self._speed_combo.config(values=[t("speed.fast"), t("speed.normal")])
         self._speed_var.set(t(f"speed.{self._settings.model_speed}"))
@@ -618,13 +586,17 @@ class TranscriptionApp:
         from .dialogs.settings_dialog import SettingsDialog
 
         def on_save(new: Settings) -> None:
-            old_lang   = self._settings.language
-            old_prompt = self._settings.prompts[old_lang]
-            old_speed  = self._settings.model_speed
+            old_lang    = self._settings.language
+            old_prompt  = self._settings.prompts[old_lang]
+            old_speed   = self._settings.model_speed
+            old_ui_lang = self._settings.ui_language
             self._settings = new
             settings_io.save(self._settings)
             self._lang_var.set(new.language)
             self._speed_var.set(t(f"speed.{new.model_speed}"))
+            if new.ui_language != old_ui_lang:
+                set_language(new.ui_language)
+                self._apply_ui_lang()
             if (
                 new.language != old_lang
                 or new.prompts[new.language] != old_prompt

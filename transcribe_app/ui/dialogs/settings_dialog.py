@@ -5,7 +5,7 @@ from typing import Callable
 
 from ..theme import C_BG, C_SURFACE, C_TEXT, C_BORDER, C_MUTED, F_SMALL, F_LABEL, make_btn, center_on_parent
 from transcribe_app.config import LANGUAGE_OPTS, DEFAULT_PROMPTS, get_model_size
-from transcribe_app.i18n import t
+from transcribe_app.i18n import UI_LANGUAGES, t
 from transcribe_app.settings import Settings
 
 
@@ -72,12 +72,26 @@ class SettingsDialog:
 
         self._speed_var.trace_add("write", lambda *_: self._update_speed_hint())
 
-        # Row 2 — style prompt
+        # Row 2 — interface language
+        tk.Label(outer, text=t("dlg.settings.ui_language"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+            row=2, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
+        )
+        self._ui_lang_var = tk.StringVar(value=UI_LANGUAGES[self._settings.ui_language])
+        ttk.Combobox(
+            outer,
+            textvariable=self._ui_lang_var,
+            values=list(UI_LANGUAGES.values()),
+            state="readonly",
+            width=14,
+            font=F_LABEL,
+        ).grid(row=2, column=1, sticky="w", pady=(0, 10))
+
+        # Row 3 — style prompt
         tk.Label(outer, text=t("dlg.settings.prompt"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
-            row=2, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
+            row=3, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
         )
         border = tk.Frame(outer, bg=C_BORDER)
-        border.grid(row=2, column=1, sticky="ew", pady=(0, 12))
+        border.grid(row=3, column=1, sticky="ew", pady=(0, 12))
 
         self._prompt_text = tk.Text(
             border,
@@ -92,7 +106,7 @@ class SettingsDialog:
         self._lang_var.trace_add("write", self._on_lang_change)
 
         btn_row = tk.Frame(outer, bg=C_BG)
-        btn_row.grid(row=3, column=0, columnspan=2, sticky="e")
+        btn_row.grid(row=4, column=0, columnspan=2, sticky="e")
         make_btn(btn_row, t("dlg.settings.reset"), self._reset).pack(side=tk.LEFT, padx=(0, 8))
         make_btn(btn_row, t("dlg.settings.save"), self._save, primary=True).pack(side=tk.LEFT)
 
@@ -120,8 +134,12 @@ class SettingsDialog:
         self._prompt_text.insert(tk.END, DEFAULT_PROMPTS[lang])
 
     def _save(self) -> None:
-        lang  = self._lang_var.get()
-        speed = self._speed_key(self._speed_var.get())
+        lang     = self._lang_var.get()
+        speed    = self._speed_key(self._speed_var.get())
+        ui_lang  = next((k for k, v in UI_LANGUAGES.items() if v == self._ui_lang_var.get()), "en")
         new_prompts = {**self._settings.prompts, lang: self._prompt_text.get("1.0", tk.END).strip()}
-        self._on_save(replace(self._settings, language=lang, prompts=new_prompts, model_speed=speed))
+        self._on_save(replace(
+            self._settings,
+            language=lang, prompts=new_prompts, model_speed=speed, ui_language=ui_lang,
+        ))
         self._win.destroy()
