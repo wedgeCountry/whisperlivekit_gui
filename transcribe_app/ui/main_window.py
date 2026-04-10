@@ -41,6 +41,7 @@ class TranscriptionApp:
 
         self._settings: Settings    = settings_io.load()
         self._recording: bool       = False
+        self._space_held: bool      = False   # push-to-talk state
         self._ui_queue: queue.Queue = queue.Queue()
 
         # Display state
@@ -176,6 +177,10 @@ class TranscriptionApp:
 
         self.root.config(cursor="watch")
 
+        # Push-to-talk: hold Space to record, release to stop
+        self.root.bind("<KeyPress-space>",   self._on_space_press)
+        self.root.bind("<KeyRelease-space>", self._on_space_release)
+
     # ── Language selector ──────────────────────────────────────────────────────
 
     def _on_language_change(self, _event=None) -> None:
@@ -201,6 +206,23 @@ class TranscriptionApp:
             self._stop_recording()
         else:
             self._start_recording()
+
+    def _on_space_press(self, event: tk.Event) -> None:
+        """Start recording while Space is held (push-to-talk)."""
+        if self._space_held or self._recording:
+            return  # ignore key-repeat or already recording via button
+        if str(self._record_btn.cget("state")) == tk.DISABLED:
+            return
+        self._space_held = True
+        self._start_recording()
+
+    def _on_space_release(self, event: tk.Event) -> None:
+        """Stop recording when Space is released."""
+        if not self._space_held:
+            return
+        self._space_held = False
+        if self._recording:
+            self._stop_recording()
 
     def _start_recording(self) -> None:
         self._recording = True
