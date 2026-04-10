@@ -260,6 +260,7 @@ class TranscriptionApp:
         self._last_text_time     = time.monotonic()
         self._last_display_sig   = ""
 
+        self._mgr.mic_gain = self._settings.mic_gain
         self._text.config(state=tk.DISABLED)
         self._text.edit_reset()
         self._mgr.start_session()
@@ -513,6 +514,7 @@ class TranscriptionApp:
         def _on_device_save(new: Settings) -> None:
             self._settings = new
             settings_io.save(self._settings)
+            self._mgr.mic_gain = new.mic_gain
 
         win = MicTestWindow(self.root, self._settings, _on_device_save)
         self._register_popup(win._win)

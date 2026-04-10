@@ -4,6 +4,9 @@ from dataclasses import replace
 from tkinter import ttk
 from typing import Callable
 
+_GAIN_MIN = 0.1
+_GAIN_MAX = 5.0
+
 import numpy as np
 
 from .theme import (
@@ -127,6 +130,51 @@ class MicTestWindow:
             anchor="center",
         ).pack(fill=tk.X, pady=(0, 8))
 
+        # ── Sensitivity slider ─────────────────────────────────────────────────
+        sens_frame = tk.Frame(outer, bg=C_BG)
+        sens_frame.pack(fill=tk.X, pady=(6, 0))
+
+        tk.Label(
+            sens_frame, text="Sensitivity",
+            bg=C_BG, fg=C_TEXT, font=("TkDefaultFont", 11, "bold"),
+            anchor="w",
+        ).pack(fill=tk.X)
+
+        slider_row = tk.Frame(sens_frame, bg=C_BG)
+        slider_row.pack(fill=tk.X, pady=(4, 0))
+
+        self._gain_var = tk.DoubleVar(value=self._settings.mic_gain)
+        self._gain_label_var = tk.StringVar(value=self._gain_db_str(self._settings.mic_gain))
+
+        tk.Scale(
+            slider_row,
+            variable=self._gain_var,
+            from_=_GAIN_MIN, to=_GAIN_MAX,
+            resolution=0.05,
+            orient=tk.HORIZONTAL,
+            showvalue=False,
+            bg=C_BG, fg=C_TEXT, troughcolor=C_SURFACE,
+            highlightthickness=0,
+            command=self._on_gain_change,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        tk.Label(
+            slider_row, textvariable=self._gain_label_var,
+            bg=C_BG, fg=C_TEXT, font=("TkFixedFont", 11),
+            width=10, anchor="e",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+    @staticmethod
+    def _gain_db_str(gain: float) -> str:
+        db = 20 * math.log10(max(gain, 1e-9))
+        return f"{db:+.1f} dB"
+
+    def _on_gain_change(self, _value=None) -> None:
+        gain = round(self._gain_var.get(), 5)
+        self._gain_label_var.set(self._gain_db_str(gain))
+        self._settings = replace(self._settings, mic_gain=gain)
+        self._on_save(self._settings)
+
     def _on_device_change(self, _event=None) -> None:
         label = self._dev_var.get()
         labels = ["System default"] + [name for _, name in self._devices]
@@ -148,7 +196,7 @@ class MicTestWindow:
 
         def _cb(indata: np.ndarray, frames: int, time_info, status) -> None:
             rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
-            self._amplitude = min(rms / 32768.0, 1.0)
+            self._amplitude = min(rms / 32768.0 * self._settings.mic_gain, 1.0)
 
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,

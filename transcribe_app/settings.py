@@ -25,6 +25,7 @@ class Settings:
     prompts:      dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PROMPTS))
     input_device: int | None     = None   # sounddevice device index; None = system default
     model_speed:  str            = "fast"    # "fast" or "normal"
+    mic_gain:     float          = 1.0       # linear amplitude multiplier applied before transcription
 
 
 def load() -> Settings:
@@ -43,6 +44,9 @@ def load() -> Settings:
     raw_speed = data.get("model_speed", "normal")
     model_speed = raw_speed if raw_speed in ("fast", "normal") else "normal"
 
+    raw_gain = data.get("mic_gain", 1.0)
+    mic_gain = float(raw_gain) if isinstance(raw_gain, (int, float)) and 0.1 <= raw_gain <= 5.0 else 1.0
+
     return Settings(
         language=lang,
         prompts={
@@ -51,6 +55,7 @@ def load() -> Settings:
         },
         input_device=input_device,
         model_speed=model_speed,
+        mic_gain=mic_gain,
     )
 
 
@@ -64,6 +69,7 @@ def save(s: Settings) -> None:
                     "prompts":      s.prompts,
                     "input_device": s.input_device,
                     "model_speed":  s.model_speed,
+                    "mic_gain":     s.mic_gain,
                 },
                 indent=2,
             ),

@@ -83,6 +83,7 @@ class EngineManager:
         self._stream:    object | None = None
         self._recording: bool          = False
         self._lang:      str           = ""
+        self.mic_gain:   float         = 1.0   # linear amplitude multiplier; set by UI
 
     # ── Startup ───────────────────────────────────────────────────────────────
 
@@ -182,8 +183,13 @@ class EngineManager:
         def _callback(indata: np.ndarray, frames: int, time_info, status) -> None:
             if not self._recording:
                 return
+            gain = self.mic_gain
+            if gain != 1.0:
+                audio = (indata.astype(np.float32) * gain).clip(-32768, 32767).astype("int16")
+            else:
+                audio = indata
             asyncio.run_coroutine_threadsafe(
-                processor.process_audio(indata.tobytes()), loop
+                processor.process_audio(audio.tobytes()), loop
             )
 
         self._stream = sd.InputStream(
