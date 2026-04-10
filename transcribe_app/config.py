@@ -23,7 +23,7 @@ LANGUAGE_OPTS: dict[str, dict] = {
             "fast":   "small.en"         if not GPU else "medium.en",
             "normal": "medium.en"        if not GPU else "large-v3-turbo",
         },
-        fallback_model_size="medium.en",
+        fallback_model_size="small.en",
         lan="en",
     ),
     "Deutsch": dict(
@@ -31,7 +31,7 @@ LANGUAGE_OPTS: dict[str, dict] = {
             "fast":   "small"            if not GPU else "medium",
             "normal": "medium"           if not GPU else "large-v3-turbo",
         },
-        fallback_model_size="medium",
+        fallback_model_size="small",
         lan="de",
     ),
 }

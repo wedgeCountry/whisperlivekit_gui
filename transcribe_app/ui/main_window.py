@@ -123,6 +123,22 @@ class TranscriptionApp:
         self._lang_combo.pack(side=tk.LEFT)
         self._lang_combo.bind("<<ComboboxSelected>>", self._on_language_change)
 
+        speed_frame = tk.Frame(header, bg=C_HEADER)
+        speed_frame.grid(row=0, column=3, padx=(0, 12), pady=8, sticky="e")
+        tk.Label(speed_frame, text="Modell", bg=C_HEADER, fg=C_MUTED, font=F_SMALL).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        self._speed_var = tk.StringVar(value=self._settings.model_speed)
+        self._speed_combo = ttk.Combobox(
+            speed_frame,
+            textvariable=self._speed_var,
+            values=["fast", "normal"],
+            state="readonly", width=7,
+            font=("TkDefaultFont", 10),
+        )
+        self._speed_combo.pack(side=tk.LEFT)
+        self._speed_combo.bind("<<ComboboxSelected>>", self._on_speed_change)
+
         # Row 1 — text area
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=1, column=0, sticky="new")
         border_frame = tk.Frame(self.root, bg=C_BORDER)
@@ -195,6 +211,14 @@ class TranscriptionApp:
         self._settings = replace(self._settings, language=lang)
         settings_io.save(self._settings)
         self._reload_engine(lang)
+
+    def _on_speed_change(self, _event=None) -> None:
+        speed = self._speed_var.get()
+        if speed == self._settings.model_speed:
+            return
+        self._settings = replace(self._settings, model_speed=speed)
+        settings_io.save(self._settings)
+        self._reload_engine(self._settings.language)
 
     def _reload_engine(self, lang: str) -> None:
         if self._recording:
@@ -534,6 +558,7 @@ class TranscriptionApp:
             self._settings = new
             settings_io.save(self._settings)
             self._lang_var.set(new.language)
+            self._speed_var.set(new.model_speed)
             if (
                 new.language != old_lang
                 or new.prompts[new.language] != old_prompt
