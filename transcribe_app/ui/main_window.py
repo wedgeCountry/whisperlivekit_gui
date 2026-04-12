@@ -13,12 +13,15 @@ Not responsible for
 * Text cleaning / voice commands                      →  text_processing
 """
 
+import logging
 import queue
 import time
 import tkinter as tk
 from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
+
+_log = logging.getLogger(__name__)
 
 from transcribe_app.config import GRAMMAR_LANG_CODES, LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
 from ..engine import EngineManager, loading_status
@@ -524,7 +527,8 @@ class TranscriptionApp:
             from transcribe_app.grammar import correct  # noqa: PLC0415
             corrected = correct(new_text, lang_code)
         except Exception:  # noqa: BLE001
-            corrected = new_text  # fall back to original on any error
+            _log.error("Grammar correction failed — keeping original text", exc_info=True)
+            corrected = new_text
 
         self._on_grammar_done(prefix, corrected, suffix)
 

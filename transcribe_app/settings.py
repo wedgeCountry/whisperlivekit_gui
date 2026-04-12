@@ -1,6 +1,7 @@
 """User-editable settings: typed dataclass + JSON persistence."""
 
 import json
+import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,8 @@ from transcribe_app.config import (
     GRAMMAR_LANG_CODES,
 )
 from transcribe_app.i18n import UI_LANGUAGES
+
+_log = logging.getLogger(__name__)
 
 _CONFIG_DIR = (
     Path.home() / "AppData" / "Roaming" / "transcribe_app"
@@ -37,7 +40,10 @@ class Settings:
 def load() -> Settings:
     try:
         data = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return Settings()  # expected on first run
     except Exception:
+        _log.warning("Could not load settings from %s — using defaults", _SETTINGS_FILE, exc_info=True)
         return Settings()
 
     lang = data.get("language", DEFAULT_LANGUAGE)
@@ -100,4 +106,4 @@ def save(s: Settings) -> None:
             encoding="utf-8",
         )
     except Exception:
-        pass
+        _log.error("Failed to save settings to %s", _SETTINGS_FILE, exc_info=True)

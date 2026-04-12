@@ -12,6 +12,7 @@ Thread model
 """
 
 import asyncio
+import logging
 import sys
 import threading
 from pathlib import Path
@@ -19,6 +20,8 @@ from typing import Callable
 
 import numpy as np
 from whisperlivekit import diarization
+
+_log = logging.getLogger(__name__)
 
 from transcribe_app.config import CHUNK_SECONDS, CHANNELS, DTYPE, GPU, IS_WINDOWS, LANGUAGE_OPTS, SAMPLE_RATE
 from transcribe_app.i18n import t
@@ -175,7 +178,7 @@ class EngineManager:
                         HIGH_PRIORITY_CLASS,
                     )
                 except Exception:
-                    pass
+                    _log.warning("Could not set Windows HIGH_PRIORITY_CLASS", exc_info=True)
             # Set a generous default socket timeout so that model downloads from
             # openaipublic.azureedge.net or Hugging Face never hang forever in a
             # frozen exe.  The timeout is reset to None once the loop is running.
@@ -366,7 +369,7 @@ class EngineManager:
                         None, lambda: new_engine.asr.transcribe(warmup_audio)
                     )
                 except Exception:  # noqa: BLE001
-                    pass  # warmup failure is non-fatal
+                    _log.warning("Warmup inference failed", exc_info=True)
 
             # AVX-512 capability check ────────────────────────────────────────
             # CTranslate2 exposes float16 compute on CPU only when the library
@@ -379,7 +382,8 @@ class EngineManager:
                     import ctranslate2  # noqa: PLC0415
                     _avx512_ok = "float16" in ctranslate2.get_supported_compute_types("cpu")
                 except Exception:
-                    _avx512_ok = True   # can't determine — stay silent
+                    _log.warning("Could not determine AVX-512 support", exc_info=True)
+                    _avx512_ok = True
                 if _avx512_ok:
                     self._on_status(t("status.ready", lang=lang))
                 else:

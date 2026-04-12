@@ -7,7 +7,10 @@ code and torn down cleanly on shutdown.
 
 from __future__ import annotations
 
+import logging
 import threading
+
+_log = logging.getLogger(__name__)
 
 _TOOLS: dict[str, object] = {}   # lang_code → LanguageTool instance
 _LOCK = threading.Lock()
@@ -45,9 +48,9 @@ def correct(text: str, lang_code: str) -> str:
 def unload_all() -> None:
     """Close all LanguageTool subprocesses (call on shutdown)."""
     with _LOCK:
-        for tool in _TOOLS.values():
+        for lang_code, tool in _TOOLS.items():
             try:
                 tool.close()  # type: ignore[union-attr]
             except Exception:  # noqa: BLE001
-                pass
+                _log.warning("Failed to close LanguageTool for %s", lang_code, exc_info=True)
         _TOOLS.clear()
