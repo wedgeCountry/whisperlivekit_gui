@@ -20,7 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
 
-from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
+from transcribe_app.config import GRAMMAR_LANG_CODES, LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
 from ..engine import EngineManager, loading_status
 from ..i18n import set_language, t
 from .. import settings as settings_io
@@ -56,6 +56,7 @@ class TranscriptionApp:
         self._absorbed_committed: str   = ""
         self._last_text_time:     float = 0.0
         self._last_display_sig:   str   = ""
+        self._grammar_running:    bool  = False  # True while background correction thread is active
 
         self._mgr = EngineManager(
             on_status=lambda msg: self._ui_queue.put(("status", msg)),
@@ -350,7 +351,10 @@ class TranscriptionApp:
                 msg = self._ui_queue.get_nowait()
                 match msg[0]:
                     case "status":
-                        self._status_var.set(msg[1])
+                        # Suppress engine status updates while grammar correction
+                        # is running — they would overwrite the progress feedback.
+                        if not self._grammar_running:
+                            self._status_var.set(msg[1])
                     case "enable_controls":
                         self._record_btn.config(state=tk.NORMAL)
                         self.root.config(cursor="")
@@ -360,8 +364,7 @@ class TranscriptionApp:
                     case "finalise":
                         _, committed = msg
                         self._set_text(committed, "")
-                        self._postprocess()
-                        self._record_btn.config(state=tk.NORMAL)
+                        self._postprocess()  # owns re-enabling the record button
         except queue.Empty:
             pass
 
@@ -448,6 +451,9 @@ class TranscriptionApp:
 
         Only the text added during the current recording session is processed —
         any pre-existing content in the editor is left untouched.
+
+        Owns re-enabling the record button: either directly (no grammar
+        correction) or after the grammar-correction background thread finishes.
         """
         full = self._text.get("1.0", "end-1c")
 
@@ -470,22 +476,74 @@ class TranscriptionApp:
             new_text = body
 
         processed = apply_commands_full(clean(new_text))
-        if processed is None:
-            return  # nothing to substitute
+        new_text_final = processed if processed is not None else new_text
 
+        if processed is not None:
+            self._begin_write()
+            self._text.delete("1.0", tk.END)
+            if prefix:
+                self._text.insert(tk.END, prefix)
+            self._text.insert(tk.END, new_text_final)
+            if suffix:
+                self._text.insert(tk.END, suffix)
+            self._render_markdown()
+            self._end_write()
+            self._text.see(tk.END)
+            self._session_prefix = prefix + new_text_final
+
+        # Grammar correction (async) or immediate button re-enable.
+        if (
+            self._settings.grammar_correction
+            and new_text_final.strip()
+            and self._settings.language in GRAMMAR_LANG_CODES
+        ):
+            self._launch_grammar(prefix, new_text_final, suffix)
+        else:
+            self._record_btn.config(state=tk.NORMAL)
+
+    def _launch_grammar(self, prefix: str, new_text: str, suffix: str) -> None:
+        """Run grammar correction synchronously with UI feedback.
+
+        Disables the record button and shows a status message, then calls
+        update_idletasks() so Tk renders those changes before the blocking
+        LanguageTool call.  The UI is intentionally held until correction
+        finishes — the user sees exactly what is happening.
+        """
+        lang_code = GRAMMAR_LANG_CODES[self._settings.language]
+        from transcribe_app.grammar import is_loaded  # noqa: PLC0415
+        status_key = (
+            "status.grammar_correcting" if is_loaded(lang_code)
+            else "status.grammar_loading"
+        )
+        self._grammar_running = True
+        self._record_btn.config(state=tk.DISABLED)
+        self._status_var.set(t(status_key))
+        self.root.update_idletasks()  # flush widget changes so the user sees them
+
+        try:
+            from transcribe_app.grammar import correct  # noqa: PLC0415
+            corrected = correct(new_text, lang_code)
+        except Exception:  # noqa: BLE001
+            corrected = new_text  # fall back to original on any error
+
+        self._on_grammar_done(prefix, corrected, suffix)
+
+    def _on_grammar_done(self, prefix: str, corrected: str, suffix: str) -> None:
+        """UI-thread callback: write corrected text, re-enable the record button."""
+        self._grammar_running = False
         self._begin_write()
         self._text.delete("1.0", tk.END)
         if prefix:
             self._text.insert(tk.END, prefix)
-        self._text.insert(tk.END, processed)
+        self._text.insert(tk.END, corrected)
         if suffix:
             self._text.insert(tk.END, suffix)
         self._render_markdown()
         self._end_write()
         self._text.see(tk.END)
-
-        # Keep session_prefix consistent so the next recording starts correctly.
-        self._session_prefix = prefix + processed
+        self._session_prefix = prefix + corrected
+        self._record_btn.config(state=tk.NORMAL)
+        self._status_var.set(t("status.ready", lang=self._settings.language))
 
     def _render_markdown(self) -> None:
         for tag in ("h1", "h2", "h3", "para_space"):
@@ -630,4 +688,6 @@ class TranscriptionApp:
 
     def _on_close(self) -> None:
         self._mgr.shutdown()
+        from transcribe_app.grammar import unload_all  # noqa: PLC0415
+        unload_all()
         self.root.destroy()

@@ -29,7 +29,7 @@ DTYPE         = "int16"
 # making it far less likely that any single OS interruption lands during a
 # callback window.  The larger block also hands the model more audio context per
 # inference, which helps the VAD gate silence more reliably.
-CHUNK_SECONDS = 0.5 if IS_WINDOWS else 0.1
+CHUNK_SECONDS = 0.5 if IS_WINDOWS else 0.3
 
 # ── Language definitions ───────────────────────────────────────────────────────
 LANGUAGE_OPTS: dict[str, dict] = {
@@ -57,6 +57,13 @@ def get_model_size(lang: str, speed: str, use_gpu: bool = GPU) -> str:
 
 DEFAULT_LANGUAGE = "Deutsch"
 
+# LanguageTool language codes for grammar correction (language_tool_python).
+# Must match a code accepted by LanguageTool (BCP-47 with region).
+GRAMMAR_LANG_CODES: dict[str, str] = {
+    "Deutsch": "de-DE",
+    "English": "en-US",
+}
+
 SPACE_HOLD_TIME_MS = 300
 
 # Default static prompts fed to Whisper before every audio chunk.
@@ -73,10 +80,8 @@ DEFAULT_PROMPTS: dict[str, str] = {
         #    correct Unicode characters.  Without this, faster-whisper sometimes
         #    transcribes "Straße" as "Strasse" or "Überblick" as "Ueberblick".
         "Der Nutzer spricht fließend Deutsch mit Umlauten: ä, ö, ü, Ä, Ö, Ü, ß. "
-        "Denkpausen werden nicht als Satzenden gewertet. "
-        "Beispiele: Straße, Überschrift, Zusammenfassung, Ausrufezeichen, Fragezeichen, "
-        "Bindestrich, Doppelpunkt, Semikolon. "
-        "Sprachbefehle: neue Zeile, neuer Absatz, erstens, zweitens, drittens."
+        "Dabei werden Denkpausen nicht als Satzenden gewertet, sondern mit Leerzeichen ersetzt. "
+        "Es gibt die folgenden Sprachbefehle: neue Zeile, neuer Absatz, erstens, zweitens, drittens."
     ),
 }
 

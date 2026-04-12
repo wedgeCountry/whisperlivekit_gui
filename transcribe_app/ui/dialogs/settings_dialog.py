@@ -105,12 +105,30 @@ class SettingsDialog:
             font=F_LABEL,
         ).grid(row=3, column=1, sticky="w", pady=(0, 10))
 
-        # Row 4 — style prompt
+        # Row 4 — grammar correction
+        tk.Label(outer, text=t("dlg.settings.grammar"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+            row=4, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
+        )
+        self._grammar_var = tk.BooleanVar(value=self._settings.grammar_correction)
+        grammar_frame = tk.Frame(outer, bg=C_BG)
+        grammar_frame.grid(row=4, column=1, sticky="w", pady=(0, 10))
+        self._grammar_chk = tk.Checkbutton(
+            grammar_frame,
+            variable=self._grammar_var,
+            bg=C_BG, activebackground=C_BG,
+            cursor="hand2",
+        )
+        self._grammar_chk.pack(side=tk.LEFT)
+        # Grey out the checkbox when no language code is defined for the current language
+        self._lang_var.trace_add("write", lambda *_: self._update_grammar_state())
+        self._update_grammar_state()
+
+        # Row 5 — style prompt
         tk.Label(outer, text=t("dlg.settings.prompt"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
-            row=4, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
+            row=5, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
         )
         border = tk.Frame(outer, bg=C_BORDER)
-        border.grid(row=4, column=1, sticky="ew", pady=(0, 12))
+        border.grid(row=5, column=1, sticky="ew", pady=(0, 12))
 
         self._prompt_text = tk.Text(
             border,
@@ -125,7 +143,7 @@ class SettingsDialog:
         self._lang_var.trace_add("write", self._on_lang_change)
 
         btn_row = tk.Frame(outer, bg=C_BG)
-        btn_row.grid(row=5, column=0, columnspan=2, sticky="e")
+        btn_row.grid(row=6, column=0, columnspan=2, sticky="e")
         make_btn(btn_row, t("dlg.settings.reset"), self._reset).pack(side=tk.LEFT, padx=(0, 8))
         make_btn(btn_row, t("dlg.settings.save"), self._save, primary=True).pack(side=tk.LEFT)
 
@@ -142,6 +160,15 @@ class SettingsDialog:
             model = get_model_size(lang, speed, use_gpu)
             self._speed_hint.config(text=f"({model})")
 
+    def _update_grammar_state(self) -> None:
+        """Enable or disable the grammar checkbox based on language code availability."""
+        from transcribe_app.config import GRAMMAR_LANG_CODES  # noqa: PLC0415
+        lang = self._lang_var.get()
+        has_code = lang in GRAMMAR_LANG_CODES
+        self._grammar_chk.config(state=tk.NORMAL if has_code else tk.DISABLED)
+        if not has_code:
+            self._grammar_var.set(False)
+
     def _on_lang_change(self, *_) -> None:
         lang = self._lang_var.get()
         self._prompt_text.delete("1.0", tk.END)
@@ -154,14 +181,16 @@ class SettingsDialog:
         self._prompt_text.insert(tk.END, DEFAULT_PROMPTS[lang])
 
     def _save(self) -> None:
-        lang           = self._lang_var.get()
-        speed          = self._speed_key(self._speed_var.get())
-        ui_lang        = next((k for k, v in UI_LANGUAGES.items() if v == self._ui_lang_var.get()), "en")
-        compute_device = self._device_var.get()
-        new_prompts    = {**self._settings.prompts, lang: self._prompt_text.get("1.0", tk.END).strip()}
+        lang               = self._lang_var.get()
+        speed              = self._speed_key(self._speed_var.get())
+        ui_lang            = next((k for k, v in UI_LANGUAGES.items() if v == self._ui_lang_var.get()), "en")
+        compute_device     = self._device_var.get()
+        grammar_correction = self._grammar_var.get()
+        new_prompts        = {**self._settings.prompts, lang: self._prompt_text.get("1.0", tk.END).strip()}
         self._on_save(replace(
             self._settings,
             language=lang, prompts=new_prompts, model_speed=speed,
             ui_language=ui_lang, compute_device=compute_device,
+            grammar_correction=grammar_correction,
         ))
         self._win.destroy()

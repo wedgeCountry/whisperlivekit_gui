@@ -49,6 +49,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "status.error_fallback":  "Error loading ({exc_type}), fallback: {status}",
         "status.critical_error":  "Critical error: {exc}",
         "status.warn_no_avx512":  "Ready  \xb7  {lang} model loaded  \u26a0 No AVX-512 \u2014 performance may be reduced",
+        "status.grammar_loading":    "Loading grammar model\u2026",
+        "status.grammar_correcting": "Correcting grammar\u2026",
+        # ── Settings dialog ────────────────────────────────────────────────────
+        "dlg.settings.grammar":   "Grammar correction:",
         # ── Settings dialog ────────────────────────────────────────────────────
         "dlg.settings.title":       "Settings",
         "dlg.settings.language":    "Language:",
@@ -98,6 +102,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "status.error_fallback":  "Fehler beim Laden ({exc_type}), Fallback: {status}",
         "status.critical_error":  "Kritischer Fehler: {exc}",
         "status.warn_no_avx512":  "Bereit  \xb7  {lang} Modell geladen  \u26a0 Kein AVX-512 \u2014 Leistung eingeschr\xe4nkt",
+        "status.grammar_loading":    "Grammatikmodell wird geladen\u2026",
+        "status.grammar_correcting": "Grammatik wird korrigiert\u2026",
+        # ── Settings dialog ────────────────────────────────────────────────────
+        "dlg.settings.grammar":   "Grammatikkorrektur:",
         # ── Settings dialog ────────────────────────────────────────────────────
         "dlg.settings.title":       "Einstellungen",
         "dlg.settings.language":    "Sprache:",
