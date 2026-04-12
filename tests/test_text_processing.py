@@ -192,6 +192,14 @@ class TestApplyCommandsFull:
         assert "\n\n" in result
 
 
+    def test_use_cases(self):
+        text = """Tastest. Ich will jetzt mal ausprobieren. Lass der Test mit mir macht. Erstens. Ich bin ein Test. Zweitens. Ich bin ein test. Drittens. Eine neue Zeile Test."""
+        result = apply_commands_full(text)
+        assert "1. " in result
+        assert "2. " in result
+        assert "3. " in result
+        assert result.endswith("\nTest.")
+
 class TestStripPromptLeak:
     def test_prompt_removed(self):
         assert strip_prompt_leak("Hello prompt world", "prompt") == "Hello  world"
