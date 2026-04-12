@@ -37,6 +37,16 @@ class Settings:
     grammar_correction: bool           = False  # run post-processing through a grammar model
 
 
+def _fill_prompts(raw: object) -> dict[str, str]:
+    """Return a prompts dict guaranteed to have a key for every language in LANGUAGE_OPTS.
+
+    A missing key is filled with the DEFAULT_PROMPTS value.  A non-dict value
+    (e.g. ``null`` from hand-edited JSON) is treated as empty.
+    """
+    base = raw if isinstance(raw, dict) else {}
+    return {k: str(base.get(k, DEFAULT_PROMPTS[k])) for k in LANGUAGE_OPTS}
+
+
 def load() -> Settings:
     try:
         data = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -73,10 +83,7 @@ def load() -> Settings:
 
     return Settings(
         language=lang,
-        prompts={
-            k: data.get("prompts", {}).get(k, DEFAULT_PROMPTS[k])
-            for k in LANGUAGE_OPTS
-        },
+        prompts=_fill_prompts(data.get("prompts")),
         input_device=input_device,
         model_speed=model_speed,
         mic_gain=mic_gain,

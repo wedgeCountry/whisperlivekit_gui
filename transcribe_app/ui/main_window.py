@@ -63,7 +63,7 @@ class TranscriptionApp:
 
         self._mgr = EngineManager(
             on_status=lambda msg: self._ui_queue.put(("status", msg)),
-            on_ready=lambda: self._ui_queue.put(("enable_controls",)),
+            on_ready=lambda ok: self._ui_queue.put(("enable_controls", ok)),
             on_update=lambda c, b: self._ui_queue.put(("update", c, b)),
             on_finalise=lambda c: self._ui_queue.put(("finalise", c)),
             on_open_mic=lambda: self.root.after(
@@ -359,7 +359,10 @@ class TranscriptionApp:
                         if not self._grammar_running:
                             self._status_var.set(msg[1])
                     case "enable_controls":
-                        self._record_btn.config(state=tk.NORMAL)
+                        _, ok = msg
+                        if ok:
+                            self._record_btn.config(state=tk.NORMAL)
+                        # else: keep disabled — status bar already shows the error
                         self.root.config(cursor="")
                     case "update":
                         _, committed, buffer = msg

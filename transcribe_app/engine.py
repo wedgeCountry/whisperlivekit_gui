@@ -90,7 +90,7 @@ class EngineManager:
     def __init__(
         self,
         on_status:   Callable[[str], None],
-        on_ready:    Callable[[], None],
+        on_ready:    Callable[[bool], None],
         on_update:   Callable[[str, str], None],
         on_finalise: Callable[[str], None],
         on_open_mic: Callable[[], None],
@@ -99,7 +99,8 @@ class EngineManager:
         Parameters
         ----------
         on_status   Called with a status-bar string whenever engine state changes.
-        on_ready    Called once the engine has finished loading (enables UI controls).
+        on_ready    Called once a load attempt finishes. Receives True on success,
+                    False if both primary and fallback loads failed (keep UI disabled).
         on_update   Called with (committed_text, buffer_text) during a live session.
         on_finalise Called with the final committed text when a session ends.
         on_open_mic Called (from the asyncio thread) to request the UI thread open
@@ -120,14 +121,23 @@ class EngineManager:
         self._use_gpu:   bool          = GPU   # updated by start()/reload()
         self.mic_gain:   float         = 1.0   # linear amplitude multiplier; set by UI
 
-        # Load-cancellation state.  _load_gen is incremented on every reload()
-        # call; a running _load_engine checks my_gen against it to detect that
-        # it has been superseded.  _load_lock serialises the actual model
-        # construction so the WhisperLiveKit singleton is never touched
-        # concurrently.  Both are initialised lazily on first use inside the
-        # event loop.
+        # Load-cancellation state.
+        #
+        # _load_gen   — incremented on every reload(); _load_engine snapshots
+        #               it at entry (my_gen) and aborts if overtaken.
+        # _load_lock  — asyncio.Lock; at most one _load_engine coroutine
+        #               executes the critical section at a time.
+        # _load_task  — the current reload asyncio.Task; cancelled on the next
+        #               reload() so waiting-for-lock tasks are dropped
+        #               immediately rather than queuing up.
+        # _exec_lock  — threading.Lock held for the entire singleton reset +
+        #               construction inside run_in_executor.  A zombie thread
+        #               from a cancelled task holds this lock until it finishes,
+        #               so the next generation cannot race it on the singleton.
         self._load_gen:  int                    = 0
         self._load_lock: asyncio.Lock | None    = None
+        self._load_task: asyncio.Task | None    = None
+        self._exec_lock: threading.Lock         = threading.Lock()
 
     # ── Startup ───────────────────────────────────────────────────────────────
 
@@ -200,7 +210,7 @@ class EngineManager:
                 # Surface any unhandled error instead of silently killing the thread
                 # (which would leave the UI stuck on the loading screen forever).
                 self._on_status(t("status.critical_error", exc=repr(exc)))
-                self._on_ready()
+                self._on_ready(False)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -210,7 +220,17 @@ class EngineManager:
         """Hot-reload the model (e.g. after a language/speed change). UI-thread safe."""
         if compute_device is not None:
             self._use_gpu = (compute_device == "cuda") and GPU
-        asyncio.run_coroutine_threadsafe(self._load_engine(lang, prompt, speed), self._loop)
+
+        def _schedule() -> None:
+            # Cancel any task still waiting to acquire _load_lock.  A task
+            # already inside run_in_executor cannot be interrupted — its thread
+            # runs to completion (result discarded via _load_gen) and _exec_lock
+            # prevents a concurrent singleton reset from racing it.
+            if self._load_task is not None and not self._load_task.done():
+                self._load_task.cancel()
+            self._load_task = self._loop.create_task(self._load_engine(lang, prompt, speed))
+
+        self._loop.call_soon_threadsafe(_schedule)
 
     async def _load_engine(self, lang: str, prompt: str, speed: str = "normal") -> None:
         from transcribe_app.config import get_model_size  # noqa: PLC0415
@@ -242,10 +262,6 @@ class EngineManager:
                 return
 
             self._lang = lang
-
-            # Reset the WhisperLiveKit singleton before each fresh load.
-            _TranscriptionEngine._instance    = None
-            _TranscriptionEngine._initialized = False
 
             def _make_cfg(size: str):
                 win_cpu = IS_WINDOWS and not use_gpu
@@ -294,14 +310,23 @@ class EngineManager:
                     _orig_stderr = sys.stderr
                     sys.stderr   = _TqdmCapture(self._on_status, _orig_stderr)
 
+            def _build_engine(size: str) -> "object | None":
+                # Holds _exec_lock for the full reset + construction so that a
+                # zombie thread from a cancelled task cannot race a concurrent
+                # singleton reset.  Returns None if superseded.
+                with self._exec_lock:
+                    if my_gen != self._load_gen:
+                        return None
+                    _TranscriptionEngine._instance    = None
+                    _TranscriptionEngine._initialized = False
+                    return _TranscriptionEngine(config=_make_cfg(size))
+
             new_engine = None
             try:
                 _maybe_capture(model_size)
-                # Run the blocking constructor in a thread so the event loop
-                # stays responsive and can accept new reload() requests.
-                new_engine = await self._loop.run_in_executor(
-                    None, lambda: _TranscriptionEngine(config=_make_cfg(model_size))
-                )
+                new_engine = await self._loop.run_in_executor(None, lambda: _build_engine(model_size))
+                if new_engine is None:
+                    return  # superseded inside the executor
             except Exception as exc:
                 if my_gen != self._load_gen:
                     return  # superseded during download/load — silently discard
@@ -311,22 +336,20 @@ class EngineManager:
                         exc_type=exc.__class__.__name__,
                         status=loading_status(fallback, lang, use_gpu),
                     ))
-                    _TranscriptionEngine._instance    = None
-                    _TranscriptionEngine._initialized = False
                     try:
                         _maybe_capture(fallback)
-                        new_engine = await self._loop.run_in_executor(
-                            None, lambda: _TranscriptionEngine(config=_make_cfg(fallback))
-                        )
+                        new_engine = await self._loop.run_in_executor(None, lambda: _build_engine(fallback))
+                        if new_engine is None:
+                            return  # superseded inside the executor
                     except Exception as fallback_exc:
                         if my_gen != self._load_gen:
                             return
                         self._on_status(t("status.error", exc=fallback_exc))
-                        self._on_ready()
+                        self._on_ready(False)
                         return
                 else:
                     self._on_status(t("status.error", exc=exc))
-                    self._on_ready()
+                    self._on_ready(False)
                     return
             finally:
                 if _orig_stderr is not None:
@@ -391,7 +414,7 @@ class EngineManager:
             else:
                 self._on_status(t("status.ready", lang=lang))
 
-            self._on_ready()
+            self._on_ready(True)
 
     # ── Recording session ─────────────────────────────────────────────────────
 
@@ -441,12 +464,21 @@ class EngineManager:
                 processor.process_audio(audio.tobytes()), loop
             )
 
-        self._stream = sd.InputStream(
+        stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
             blocksize=blocksize, callback=_callback,
             device=device,
         )
-        self._stream.start()
+        try:
+            stream.start()
+        except Exception:
+            try:
+                stream.close()
+            except Exception:
+                pass
+            self._stream = None
+            raise
+        self._stream = stream
 
     def stop_session(self) -> None:
         """Stop recording and flush the processor. Call from the UI thread."""
