@@ -73,6 +73,7 @@ class TranscriptionApp:
             self._settings.language,
             self._settings.prompts[self._settings.language],
             self._settings.model_speed,
+            self._settings.compute_device,
         )
         self._poll_ui()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -191,10 +192,12 @@ class TranscriptionApp:
 
         # Row 3/4 — status bar
         tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=3, column=0, sticky="ew")
+        _use_gpu = self._settings.compute_device == "cuda"
         self._status_var = tk.StringVar(
             value=loading_status(
-                get_model_size(self._settings.language, self._settings.model_speed),
+                get_model_size(self._settings.language, self._settings.model_speed, _use_gpu),
                 self._settings.language,
+                _use_gpu,
             )
         )
         tk.Label(
@@ -258,9 +261,10 @@ class TranscriptionApp:
         if self._recording:
             self._stop_recording()
         self._record_btn.config(state=tk.DISABLED)
-        self._status_var.set(loading_status(get_model_size(lang, self._settings.model_speed), lang))
+        use_gpu = self._settings.compute_device == "cuda"
+        self._status_var.set(loading_status(get_model_size(lang, self._settings.model_speed, use_gpu), lang, use_gpu))
         self.root.config(cursor="watch")
-        self._mgr.reload(lang, self._settings.prompts[lang], self._settings.model_speed)
+        self._mgr.reload(lang, self._settings.prompts[lang], self._settings.model_speed, self._settings.compute_device)
 
     # ── Recording ──────────────────────────────────────────────────────────────
 
@@ -590,6 +594,7 @@ class TranscriptionApp:
             old_prompt  = self._settings.prompts[old_lang]
             old_speed   = self._settings.model_speed
             old_ui_lang = self._settings.ui_language
+            old_device  = self._settings.compute_device
             self._settings = new
             settings_io.save(self._settings)
             self._lang_var.set(new.language)
@@ -601,6 +606,7 @@ class TranscriptionApp:
                 new.language != old_lang
                 or new.prompts[new.language] != old_prompt
                 or new.model_speed != old_speed
+                or new.compute_device != old_device
             ):
                 self._reload_engine(new.language)
 

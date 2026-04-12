@@ -8,6 +8,7 @@ from pathlib import Path
 from transcribe_app.config import (
     DEFAULT_LANGUAGE,
     DEFAULT_PROMPTS,
+    GPU,
     LANGUAGE_OPTS,
 )
 from transcribe_app.i18n import UI_LANGUAGES
@@ -22,12 +23,13 @@ _SETTINGS_FILE = _CONFIG_DIR / "settings.json"
 
 @dataclass
 class Settings:
-    language:     str            = DEFAULT_LANGUAGE
-    prompts:      dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PROMPTS))
-    input_device: int | None     = None   # sounddevice device index; None = system default
-    model_speed:  str            = "fast"    # "fast" or "normal"
-    mic_gain:     float          = 1.0       # linear amplitude multiplier applied before transcription
-    ui_language:  str            = "en"      # interface language code; see i18n.UI_LANGUAGES
+    language:       str            = DEFAULT_LANGUAGE
+    prompts:        dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PROMPTS))
+    input_device:   int | None     = None   # sounddevice device index; None = system default
+    model_speed:    str            = "fast"    # "fast" or "normal"
+    mic_gain:       float          = 1.0       # linear amplitude multiplier applied before transcription
+    ui_language:    str            = "en"      # interface language code; see i18n.UI_LANGUAGES
+    compute_device: str            = "cuda" if GPU else "cpu"  # "cuda" or "cpu"
 
 
 def load() -> Settings:
@@ -52,6 +54,10 @@ def load() -> Settings:
     raw_ui_lang = data.get("ui_language", "en")
     ui_language = raw_ui_lang if raw_ui_lang in UI_LANGUAGES else "en"
 
+    raw_compute = data.get("compute_device", "cuda" if GPU else "cpu")
+    # "cuda" is only valid when GPU hardware is actually present
+    compute_device = raw_compute if raw_compute in ("cuda", "cpu") and (raw_compute != "cuda" or GPU) else ("cuda" if GPU else "cpu")
+
     return Settings(
         language=lang,
         prompts={
@@ -62,6 +68,7 @@ def load() -> Settings:
         model_speed=model_speed,
         mic_gain=mic_gain,
         ui_language=ui_language,
+        compute_device=compute_device,
     )
 
 
@@ -71,12 +78,13 @@ def save(s: Settings) -> None:
         _SETTINGS_FILE.write_text(
             json.dumps(
                 {
-                    "language":     s.language,
-                    "prompts":      s.prompts,
-                    "input_device": s.input_device,
-                    "model_speed":  s.model_speed,
-                    "mic_gain":     s.mic_gain,
-                    "ui_language":  s.ui_language,
+                    "language":       s.language,
+                    "prompts":        s.prompts,
+                    "input_device":   s.input_device,
+                    "model_speed":    s.model_speed,
+                    "mic_gain":       s.mic_gain,
+                    "ui_language":    s.ui_language,
+                    "compute_device": s.compute_device,
                 },
                 indent=2,
             ),

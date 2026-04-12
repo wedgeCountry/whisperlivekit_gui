@@ -47,8 +47,8 @@ def _is_model_cached(model_size: str) -> bool:
         return False
 
 
-def loading_status(model_size: str, lang: str) -> str:
-    device = "GPU" if GPU else "CPU"
+def loading_status(model_size: str, lang: str, use_gpu: bool = GPU) -> str:
+    device = "GPU" if use_gpu else "CPU"
     key    = "status.loading" if _is_model_cached(model_size) else "status.downloading"
     return t(key, model=model_size, lang=lang, device=device)
 
@@ -114,12 +114,15 @@ class EngineManager:
         self._stream:    object | None = None
         self._recording: bool          = False
         self._lang:      str           = ""
+        self._use_gpu:   bool          = GPU   # updated by start()/reload()
         self.mic_gain:   float         = 1.0   # linear amplitude multiplier; set by UI
 
     # ── Startup ───────────────────────────────────────────────────────────────
 
-    def start(self, lang: str, prompt: str, speed: str = "normal") -> None:
+    def start(self, lang: str, prompt: str, speed: str = "normal", compute_device: str = "cuda" if GPU else "cpu") -> None:
         """Spin up the background asyncio thread and load the initial model."""
+        self._use_gpu = (compute_device == "cuda") and GPU
+
         def _run() -> None:
             import socket  # noqa: PLC0415
             # Set a generous default socket timeout so that model downloads from
@@ -149,25 +152,30 @@ class EngineManager:
 
     # ── Engine lifecycle ──────────────────────────────────────────────────────
 
-    def reload(self, lang: str, prompt: str, speed: str = "normal") -> None:
+    def reload(self, lang: str, prompt: str, speed: str = "normal", compute_device: str | None = None) -> None:
         """Hot-reload the model (e.g. after a language/speed change). UI-thread safe."""
+        if compute_device is not None:
+            self._use_gpu = (compute_device == "cuda") and GPU
         asyncio.run_coroutine_threadsafe(self._load_engine(lang, prompt, speed), self._loop)
 
     async def _load_engine(self, lang: str, prompt: str, speed: str = "normal") -> None:
+        from transcribe_app.config import get_model_size  # noqa: PLC0415
         opts       = LANGUAGE_OPTS[lang]
-        model_size = opts["model_sizes"][speed]
+        model_size = get_model_size(lang, speed, self._use_gpu)
         fallback   = opts["fallback_model_size"]
         lan        = opts["lan"]
         self._lang = lang
 
         _TranscriptionEngine._instance = None
         _TranscriptionEngine._initialized = False
-        self._on_status(loading_status(model_size, lang))
+        self._on_status(loading_status(model_size, lang, self._use_gpu))
+
+        use_gpu = self._use_gpu
 
         def _make_cfg(size: str):
             return _WhisperLiveKitConfig(
                 pcm_input=True, vac=True,
-                model_size=size, lan=lan, decoder_type="beam" if GPU else "greedy",
+                model_size=size, lan=lan, decoder_type="beam" if use_gpu else "greedy",
                 min_chunk_size=0.30, audio_max_len=12.0, audio_min_len=0.20, direct_english_translation=False, #diarization=True,
                 static_init_prompt=prompt if prompt.strip() else None,
             )
@@ -180,7 +188,7 @@ class EngineManager:
         try:
             self._engine = _TranscriptionEngine(config=_make_cfg(model_size))
         except Exception as exc:
-            if GPU and model_size != fallback:
+            if use_gpu and model_size != fallback:
                 self._on_status(t(
                     "status.error_fallback",
                     exc_type=exc.__class__.__name__,
@@ -286,7 +294,7 @@ class EngineManager:
             _TranscriptionEngine._instance = None
             _TranscriptionEngine._initialized = False
             self._engine = None
-        if GPU:
+        if self._use_gpu:
             try:
                 import torch  # noqa: PLC0415
                 torch.cuda.empty_cache()

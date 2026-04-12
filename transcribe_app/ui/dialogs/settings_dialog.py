@@ -4,7 +4,7 @@ from dataclasses import replace
 from typing import Callable
 
 from ..theme import C_BG, C_SURFACE, C_TEXT, C_BORDER, C_MUTED, F_SMALL, F_LABEL, make_btn, center_on_parent
-from transcribe_app.config import LANGUAGE_OPTS, DEFAULT_PROMPTS, get_model_size
+from transcribe_app.config import GPU, LANGUAGE_OPTS, DEFAULT_PROMPTS, get_model_size
 from transcribe_app.i18n import UI_LANGUAGES, t
 from transcribe_app.settings import Settings
 
@@ -68,13 +68,32 @@ class SettingsDialog:
             speed_frame, bg=C_BG, fg=C_MUTED, font=F_SMALL, anchor="w",
         )
         self._speed_hint.pack(side=tk.LEFT, padx=(10, 0))
-        self._update_speed_hint()
+        # _update_speed_hint() called after _device_var is created (row 2)
 
         self._speed_var.trace_add("write", lambda *_: self._update_speed_hint())
 
-        # Row 2 — interface language
-        tk.Label(outer, text=t("dlg.settings.ui_language"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+        # Row 2 — compute device
+        tk.Label(outer, text=t("dlg.settings.device"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
             row=2, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
+        )
+        self._device_var = tk.StringVar(value=self._settings.compute_device)
+        self._device_combo = ttk.Combobox(
+            outer,
+            textvariable=self._device_var,
+            values=["cuda", "cpu"] if GPU else ["cpu"],
+            state="readonly" if GPU else "disabled",
+            width=6,
+            font=F_LABEL,
+        )
+        self._device_combo.grid(row=2, column=1, sticky="w", pady=(0, 10))
+        if not GPU:
+            self._device_var.set("cpu")
+        self._device_var.trace_add("write", lambda *_: self._update_speed_hint())
+        self._update_speed_hint()  # now safe: _device_var exists
+
+        # Row 3 — interface language
+        tk.Label(outer, text=t("dlg.settings.ui_language"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+            row=3, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
         )
         self._ui_lang_var = tk.StringVar(value=UI_LANGUAGES[self._settings.ui_language])
         ttk.Combobox(
@@ -84,14 +103,14 @@ class SettingsDialog:
             state="readonly",
             width=14,
             font=F_LABEL,
-        ).grid(row=2, column=1, sticky="w", pady=(0, 10))
+        ).grid(row=3, column=1, sticky="w", pady=(0, 10))
 
-        # Row 3 — style prompt
+        # Row 4 — style prompt
         tk.Label(outer, text=t("dlg.settings.prompt"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
-            row=3, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
+            row=4, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
         )
         border = tk.Frame(outer, bg=C_BORDER)
-        border.grid(row=3, column=1, sticky="ew", pady=(0, 12))
+        border.grid(row=4, column=1, sticky="ew", pady=(0, 12))
 
         self._prompt_text = tk.Text(
             border,
@@ -106,7 +125,7 @@ class SettingsDialog:
         self._lang_var.trace_add("write", self._on_lang_change)
 
         btn_row = tk.Frame(outer, bg=C_BG)
-        btn_row.grid(row=4, column=0, columnspan=2, sticky="e")
+        btn_row.grid(row=5, column=0, columnspan=2, sticky="e")
         make_btn(btn_row, t("dlg.settings.reset"), self._reset).pack(side=tk.LEFT, padx=(0, 8))
         make_btn(btn_row, t("dlg.settings.save"), self._save, primary=True).pack(side=tk.LEFT)
 
@@ -116,10 +135,11 @@ class SettingsDialog:
         return next((s for s in ("fast", "normal") if t(f"speed.{s}") == label), "fast")
 
     def _update_speed_hint(self) -> None:
-        lang  = self._lang_var.get()
-        speed = self._speed_key(self._speed_var.get())
+        lang     = self._lang_var.get()
+        speed    = self._speed_key(self._speed_var.get())
+        use_gpu  = GPU and self._device_var.get() == "cuda"
         if lang and speed:
-            model = get_model_size(lang, speed)
+            model = get_model_size(lang, speed, use_gpu)
             self._speed_hint.config(text=f"({model})")
 
     def _on_lang_change(self, *_) -> None:
@@ -134,12 +154,14 @@ class SettingsDialog:
         self._prompt_text.insert(tk.END, DEFAULT_PROMPTS[lang])
 
     def _save(self) -> None:
-        lang     = self._lang_var.get()
-        speed    = self._speed_key(self._speed_var.get())
-        ui_lang  = next((k for k, v in UI_LANGUAGES.items() if v == self._ui_lang_var.get()), "en")
-        new_prompts = {**self._settings.prompts, lang: self._prompt_text.get("1.0", tk.END).strip()}
+        lang           = self._lang_var.get()
+        speed          = self._speed_key(self._speed_var.get())
+        ui_lang        = next((k for k, v in UI_LANGUAGES.items() if v == self._ui_lang_var.get()), "en")
+        compute_device = self._device_var.get()
+        new_prompts    = {**self._settings.prompts, lang: self._prompt_text.get("1.0", tk.END).strip()}
         self._on_save(replace(
             self._settings,
-            language=lang, prompts=new_prompts, model_speed=speed, ui_language=ui_lang,
+            language=lang, prompts=new_prompts, model_speed=speed,
+            ui_language=ui_lang, compute_device=compute_device,
         ))
         self._win.destroy()

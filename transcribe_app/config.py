@@ -19,27 +19,24 @@ LANGUAGE_OPTS: dict[str, dict] = {
     "English": dict(
         # fast  → small (CPU) or medium (GPU)
         # normal→ medium (CPU) or large-v3-turbo (GPU)
-        model_sizes={
-            "fast":   "small.en"         if not GPU else "medium.en",
-            "normal": "medium.en"        if not GPU else "large-v3-turbo",
-        },
+        model_sizes_cpu={"fast": "small.en",  "normal": "medium.en"},
+        model_sizes_gpu={"fast": "medium.en", "normal": "large-v3-turbo"},
         fallback_model_size="small.en",
         lan="en",
     ),
     "Deutsch": dict(
-        model_sizes={
-            "fast":   "small"            if not GPU else "medium",
-            "normal": "medium"           if not GPU else "large-v3-turbo",
-        },
+        model_sizes_cpu={"fast": "small",  "normal": "medium"},
+        model_sizes_gpu={"fast": "medium", "normal": "large-v3-turbo"},
         fallback_model_size="small",
         lan="de",
     ),
 }
 
 
-def get_model_size(lang: str, speed: str) -> str:
-    """Return the model-size string for the given language and speed ('fast'/'normal')."""
-    return LANGUAGE_OPTS[lang]["model_sizes"][speed]
+def get_model_size(lang: str, speed: str, use_gpu: bool = GPU) -> str:
+    """Return the model-size string for the given language, speed ('fast'/'normal'), and device."""
+    opts = LANGUAGE_OPTS[lang]
+    return opts["model_sizes_gpu" if use_gpu else "model_sizes_cpu"][speed]
 
 DEFAULT_LANGUAGE = "Deutsch"
 
@@ -51,8 +48,9 @@ SPACE_HOLD_TIME_MS = 300
 DEFAULT_PROMPTS: dict[str, str] = {
     "English": "",
     "Deutsch": (
-        "Diktat mit Sprachbefehlen: neue Zeile, neuer Absatz, Satzzeichen, Erstens, zweitens, drittens..."
-        "Diktat mit Denkpausen. Bei Denkpause Leerzeichen statt Satzzeichen."
+
+        "Der Nutzer macht Denkpausen, füge da ein Leerzeichen statt Satzzeichen ein."
+        "Sprachbefehle: neue Zeile, neuer Absatz, Satzzeichen, Erstens, zweitens, drittens..."
     ),
 }
 
