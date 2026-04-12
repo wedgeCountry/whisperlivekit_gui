@@ -336,6 +336,38 @@ class EngineManager:
 
             self._engine = new_engine
 
+            # Warmup inference ────────────────────────────────────────────────
+            # The first real Whisper inference after a cold model load is
+            # 3–5× slower than subsequent ones because:
+            #   • CTranslate2's INT8 GEMM kernels are not yet compiled/cached
+            #     by the JIT layer (especially on CPU with OpenBLAS/MKL).
+            #   • The OS page-cache for the model weights is cold — memory
+            #     pages that were mapped but not yet touched get faulted in
+            #     on the very first access.
+            #
+            # Sending 1 second of silence through the model pre-populates
+            # these caches so the user's first spoken word is processed at
+            # steady-state speed, not cold-start speed.  The result is
+            # discarded; any exception is silently swallowed.
+            if getattr(new_engine, "asr", None) is not None:
+                device = "GPU" if use_gpu else "CPU"
+                self._on_status(t("status.warmup", model=model_size, lang=lang, device=device))
+                # Gaussian noise at speech-like RMS (≈ 0.05–0.10 normalised).
+                # Unlike silence (zero mel spectrogram → trivial encoder pass,
+                # 1–2 decoder steps), noise produces a dense mel spectrogram
+                # that forces every encoder attention head to compute non-trivial
+                # QKV projections, and drives the decoder through many token
+                # steps — the same code paths that will run on real speech.
+                # A fixed seed makes the warmup deterministic and reproducible.
+                rng = np.random.default_rng(42)
+                warmup_audio = (rng.standard_normal(16000) * 0.07).astype(np.float32)
+                try:
+                    await self._loop.run_in_executor(
+                        None, lambda: new_engine.asr.transcribe(warmup_audio)
+                    )
+                except Exception:  # noqa: BLE001
+                    pass  # warmup failure is non-fatal
+
             # AVX-512 capability check ────────────────────────────────────────
             # CTranslate2 exposes float16 compute on CPU only when the library
             # was compiled with AVX-512 support AND the CPU supports it.  Its

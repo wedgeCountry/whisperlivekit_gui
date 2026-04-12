@@ -43,6 +43,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "file.type.text":         "Text file",
         "file.type.all":          "All files",
         # ── Engine status (produced in background thread) ──────────────────────
+        "status.warmup":          "Warming up: {model}  ({lang} \xb7 {device})\u2026",
         "status.loading":         "Loading: {model}  ({lang} \xb7 {device})\u2026",
         "status.downloading":     "Downloading: {model}  ({lang} \xb7 {device})\u2026",
         "status.error":           "Error: {exc}",
@@ -96,6 +97,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "file.type.text":         "Textdatei",
         "file.type.all":          "Alle Dateien",
         # ── Engine status (produced in background thread) ──────────────────────
+        "status.warmup":          "Aufwärmen: {model}  ({lang} \xb7 {device})\u2026",
         "status.loading":         "Lade: {model}  ({lang} \xb7 {device})\u2026",
         "status.downloading":     "Lade herunter: {model}  ({lang} \xb7 {device})\u2026",
         "status.error":           "Fehler: {exc}",
