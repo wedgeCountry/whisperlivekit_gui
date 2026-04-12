@@ -133,7 +133,23 @@ class EngineManager:
         self._use_gpu = (compute_device == "cuda") and GPU
 
         def _run() -> None:
+            import os      # noqa: PLC0415
             import socket  # noqa: PLC0415
+            # Linear-algebra thread pinning ───────────────────────────────────
+            # CTranslate2 (the INT8 inference backend) picks up OMP/OpenBLAS/
+            # MKL thread counts from environment variables at import time.  The
+            # default (0) uses every logical core, which is fine for batch jobs
+            # but causes contention in a live-streaming app where the sounddevice
+            # callback, asyncio event loop, and Tkinter UI all compete for CPU.
+            # Capping at half the physical cores (min 2, max 8) keeps the decoder
+            # fast while leaving headroom for the audio and UI threads.
+            if "OMP_NUM_THREADS" not in os.environ:
+                import multiprocessing  # noqa: PLC0415
+                cores = multiprocessing.cpu_count()
+                threads = max(2, min(8, cores // 2))
+                os.environ["OMP_NUM_THREADS"]      = str(threads)
+                os.environ["OPENBLAS_NUM_THREADS"] = str(threads)
+                os.environ["MKL_NUM_THREADS"]      = str(threads)
             # Windows process priority ─────────────────────────────────────────
             # Live transcription is extremely latency-sensitive.  The Windows
             # scheduler frequently preempts CPU-heavy background processes to
@@ -319,7 +335,26 @@ class EngineManager:
                 return
 
             self._engine = new_engine
-            self._on_status(t("status.ready", lang=lang))
+
+            # AVX-512 capability check ────────────────────────────────────────
+            # CTranslate2 exposes float16 compute on CPU only when the library
+            # was compiled with AVX-512 support AND the CPU supports it.  Its
+            # absence means the INT8 matrix multiplications fall back to AVX2
+            # (or SSE4), which is noticeably slower on large models.  The check
+            # is CPU-only: GPU users route through CUDA kernels instead.
+            if not use_gpu:
+                try:
+                    import ctranslate2  # noqa: PLC0415
+                    _avx512_ok = "float16" in ctranslate2.get_supported_compute_types("cpu")
+                except Exception:
+                    _avx512_ok = True   # can't determine — stay silent
+                if _avx512_ok:
+                    self._on_status(t("status.ready", lang=lang))
+                else:
+                    self._on_status(t("status.warn_no_avx512", lang=lang))
+            else:
+                self._on_status(t("status.ready", lang=lang))
+
             self._on_ready()
 
     # ── Recording session ─────────────────────────────────────────────────────

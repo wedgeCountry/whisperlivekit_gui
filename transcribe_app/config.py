@@ -65,9 +65,18 @@ SPACE_HOLD_TIME_MS = 300
 DEFAULT_PROMPTS: dict[str, str] = {
     "English": "",
     "Deutsch": (
-
-        "Der Nutzer macht Denkpausen, füge da ein Leerzeichen statt Satzzeichen ein."
-        "Sprachbefehle: neue Zeile, neuer Absatz, Satzzeichen, Erstens, zweitens, drittens..."
+        # Two purposes:
+        # 1. Style/pause hint — discourages the model from inserting punctuation
+        #    at every disfluency.
+        # 2. Hotword / orthography seeding — mentioning ß, Umlaute, and common
+        #    compound words in the prompt shifts the tokenizer's prior toward the
+        #    correct Unicode characters.  Without this, faster-whisper sometimes
+        #    transcribes "Straße" as "Strasse" or "Überblick" as "Ueberblick".
+        "Der Nutzer spricht fließend Deutsch mit Umlauten: ä, ö, ü, Ä, Ö, Ü, ß. "
+        "Denkpausen werden nicht als Satzenden gewertet. "
+        "Beispiele: Straße, Überschrift, Zusammenfassung, Ausrufezeichen, Fragezeichen, "
+        "Bindestrich, Doppelpunkt, Semikolon. "
+        "Sprachbefehle: neue Zeile, neuer Absatz, erstens, zweitens, drittens."
     ),
 }
 
