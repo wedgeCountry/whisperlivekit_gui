@@ -20,7 +20,7 @@ from typing import Callable
 import numpy as np
 from whisperlivekit import diarization
 
-from transcribe_app.config import CHUNK_SECONDS, CHANNELS, DTYPE, GPU, LANGUAGE_OPTS, SAMPLE_RATE
+from transcribe_app.config import CHUNK_SECONDS, CHANNELS, DTYPE, GPU, IS_WINDOWS, LANGUAGE_OPTS, SAMPLE_RATE
 from transcribe_app.i18n import t
 
 # WhisperLiveKit types are imported lazily inside the background thread so that
@@ -134,6 +134,32 @@ class EngineManager:
 
         def _run() -> None:
             import socket  # noqa: PLC0415
+            # Windows process priority ─────────────────────────────────────────
+            # Live transcription is extremely latency-sensitive.  The Windows
+            # scheduler frequently preempts CPU-heavy background processes to
+            # service system tasks (antivirus, telemetry, UI redraws).  Even a
+            # 10–20 ms stall during the model's INT8 matrix multiplications can
+            # cause the audio buffer to drift, losing a short fragment of speech.
+            # Whisper is autoregressive: it uses its own previous output as
+            # context for the next token.  A single wrong token caused by missing
+            # audio can cascade into a "hallucination loop" where the most likely
+            # next token keeps repeating the last word.
+            #
+            # Raising to HIGH_PRIORITY_CLASS tells the Windows scheduler to
+            # prefer this process over normal-priority tasks without starving the
+            # UI thread (which remains responsive because Tk runs in a separate
+            # thread at normal priority).  This is the programmatic equivalent of
+            # the manual Task-Manager workaround.
+            if IS_WINDOWS:
+                try:
+                    import ctypes  # noqa: PLC0415
+                    HIGH_PRIORITY_CLASS = 0x0080
+                    ctypes.windll.kernel32.SetPriorityClass(  # type: ignore[attr-defined]
+                        ctypes.windll.kernel32.GetCurrentProcess(),  # type: ignore[attr-defined]
+                        HIGH_PRIORITY_CLASS,
+                    )
+                except Exception:
+                    pass
             # Set a generous default socket timeout so that model downloads from
             # openaipublic.azureedge.net or Hugging Face never hang forever in a
             # frozen exe.  The timeout is reset to None once the loop is running.
@@ -203,10 +229,37 @@ class EngineManager:
             _TranscriptionEngine._initialized = False
 
             def _make_cfg(size: str):
+                win_cpu = IS_WINDOWS and not use_gpu
+                # decoder_type / beams ────────────────────────────────────────
+                # Greedy decoding always picks the single highest-probability
+                # token.  This is fast, but if a tiny floating-point difference
+                # (caused by Windows using a different math library path than
+                # Linux) pushes the wrong token to the top, that token is fed
+                # back as context for the *next* prediction.  On Windows CPU
+                # these small rounding errors can cascade into a "repetition
+                # loop" where the same word keeps winning.
+                #
+                # Beam search explores `beams` candidate sequences in parallel
+                # and picks the overall best path, so a single bad token can be
+                # recovered in the next step.  The cost is higher CPU usage;
+                # `beams=5` is a standard trade-off that stays fast enough for
+                # real-time use on a modern CPU.
+                #
+                # min_chunk_size ──────────────────────────────────────────────
+                # WhisperLiveKit will not start an inference pass until it has
+                # accumulated at least `min_chunk_size` seconds of audio.  On
+                # Windows, Windows Audio Processing Objects (APO) may apply
+                # driver-level noise suppression or AGC that distorts very short
+                # clips in ways that confuse the VAD.  A 0.50 s minimum forces
+                # the model to wait for a more complete utterance before
+                # committing, reducing false triggers during pauses.
                 return _WhisperLiveKitConfig(
                     pcm_input=True, vac=True,
-                    model_size=size, lan=lan, decoder_type="beam" if use_gpu else "greedy",
-                    min_chunk_size=0.30, audio_max_len=12.0, audio_min_len=0.20,
+                    model_size=size, lan=lan,
+                    decoder_type="beam" if (use_gpu or win_cpu) else "greedy",
+                    beams=5 if win_cpu else 1,
+                    min_chunk_size=0.50 if win_cpu else 0.30,
+                    audio_max_len=12.0, audio_min_len=0.20,
                     direct_english_translation=False,  # diarization=True,
                     static_init_prompt=prompt if prompt.strip() else None,
                 )

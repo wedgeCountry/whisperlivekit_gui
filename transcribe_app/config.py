@@ -1,5 +1,9 @@
 """Compile-time constants. Nothing here depends on user settings or the UI."""
 
+import sys
+
+# ── OS detection ───────────────────────────────────────────────────────────────
+IS_WINDOWS: bool = sys.platform == "win32"
 
 # ── GPU detection ──────────────────────────────────────────────────────────────
 try:
@@ -12,7 +16,20 @@ except Exception:
 SAMPLE_RATE   = 16000
 CHANNELS      = 1
 DTYPE         = "int16"
-CHUNK_SECONDS = 0.1
+# Windows audio drivers (WASAPI/DirectSound) introduce more scheduling jitter
+# than the Linux ALSA/PipeWire stack.  With CHUNK_SECONDS = 0.1 the sounddevice
+# callback fires 10× per second; on Windows that high frequency increases the
+# risk that a brief CPU stall (antivirus scan, telemetry flush, UI redraw) causes
+# a callback to be late or skipped, silently dropping ~100 ms of audio.  A
+# missing 20–100 ms fragment is enough to confuse Whisper into a wrong word or a
+# repetition loop, because the autoregressive model feeds its previous output
+# back as context for the next token.
+#
+# Using 0.5 s blocks on Windows means the callback fires only twice per second,
+# making it far less likely that any single OS interruption lands during a
+# callback window.  The larger block also hands the model more audio context per
+# inference, which helps the VAD gate silence more reliably.
+CHUNK_SECONDS = 0.5 if IS_WINDOWS else 0.1
 
 # ── Language definitions ───────────────────────────────────────────────────────
 LANGUAGE_OPTS: dict[str, dict] = {
