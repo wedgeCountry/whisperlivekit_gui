@@ -117,6 +117,15 @@ class EngineManager:
         self._use_gpu:   bool          = GPU   # updated by start()/reload()
         self.mic_gain:   float         = 1.0   # linear amplitude multiplier; set by UI
 
+        # Load-cancellation state.  _load_gen is incremented on every reload()
+        # call; a running _load_engine checks my_gen against it to detect that
+        # it has been superseded.  _load_lock serialises the actual model
+        # construction so the WhisperLiveKit singleton is never touched
+        # concurrently.  Both are initialised lazily on first use inside the
+        # event loop.
+        self._load_gen:  int                    = 0
+        self._load_lock: asyncio.Lock | None    = None
+
     # ── Startup ───────────────────────────────────────────────────────────────
 
     def start(self, lang: str, prompt: str, speed: str = "normal", compute_device: str = "cuda" if GPU else "cpu") -> None:
@@ -160,58 +169,105 @@ class EngineManager:
 
     async def _load_engine(self, lang: str, prompt: str, speed: str = "normal") -> None:
         from transcribe_app.config import get_model_size  # noqa: PLC0415
+
+        # Snapshot settings that belong to this load request.
+        use_gpu    = self._use_gpu
         opts       = LANGUAGE_OPTS[lang]
-        model_size = get_model_size(lang, speed, self._use_gpu)
+        model_size = get_model_size(lang, speed, use_gpu)
         fallback   = opts["fallback_model_size"]
         lan        = opts["lan"]
-        self._lang = lang
 
-        _TranscriptionEngine._instance = None
-        _TranscriptionEngine._initialized = False
-        self._on_status(loading_status(model_size, lang, self._use_gpu))
+        # Stamp this request.  Any later reload() will increment _load_gen so
+        # we know we've been superseded.
+        self._load_gen += 1
+        my_gen = self._load_gen
 
-        use_gpu = self._use_gpu
+        # Update the status bar immediately so the UI reflects the new
+        # selection even while waiting for the lock.
+        self._on_status(loading_status(model_size, lang, use_gpu))
 
-        def _make_cfg(size: str):
-            return _WhisperLiveKitConfig(
-                pcm_input=True, vac=True,
-                model_size=size, lan=lan, decoder_type="beam" if use_gpu else "greedy",
-                min_chunk_size=0.30, audio_max_len=12.0, audio_min_len=0.20, direct_english_translation=False, #diarization=True,
-                static_init_prompt=prompt if prompt.strip() else None,
-            )
+        # Lazy-create the lock inside the event loop.
+        if self._load_lock is None:
+            self._load_lock = asyncio.Lock()
 
-        _orig_stderr = None
-        if not _is_model_cached(model_size):
-            _orig_stderr = sys.stderr
-            sys.stderr = _TqdmCapture(self._on_status, _orig_stderr)
+        async with self._load_lock:
+            # Re-check after acquiring: a later reload() may have come in
+            # while we were waiting.
+            if my_gen != self._load_gen:
+                return
 
-        try:
-            self._engine = _TranscriptionEngine(config=_make_cfg(model_size))
-        except Exception as exc:
-            if use_gpu and model_size != fallback:
-                self._on_status(t(
-                    "status.error_fallback",
-                    exc_type=exc.__class__.__name__,
-                    status=loading_status(fallback, lang),
-                ))
-                _TranscriptionEngine._instance = None
-                _TranscriptionEngine._initialized = False
-                try:
-                    self._engine = _TranscriptionEngine(config=_make_cfg(fallback))
-                except Exception as fallback_exc:
-                    self._on_status(t("status.error", exc=fallback_exc))
+            self._lang = lang
+
+            # Reset the WhisperLiveKit singleton before each fresh load.
+            _TranscriptionEngine._instance    = None
+            _TranscriptionEngine._initialized = False
+
+            def _make_cfg(size: str):
+                return _WhisperLiveKitConfig(
+                    pcm_input=True, vac=True,
+                    model_size=size, lan=lan, decoder_type="beam" if use_gpu else "greedy",
+                    min_chunk_size=0.30, audio_max_len=12.0, audio_min_len=0.20,
+                    direct_english_translation=False,  # diarization=True,
+                    static_init_prompt=prompt if prompt.strip() else None,
+                )
+
+            # Redirect stderr so tqdm download bars appear in the status bar.
+            # We do this for every uncached model; a second redirect for the
+            # fallback is set up inside the except block if needed.
+            _orig_stderr = None
+
+            def _maybe_capture(size: str) -> None:
+                nonlocal _orig_stderr
+                if _orig_stderr is None and not _is_model_cached(size):
+                    _orig_stderr = sys.stderr
+                    sys.stderr   = _TqdmCapture(self._on_status, _orig_stderr)
+
+            new_engine = None
+            try:
+                _maybe_capture(model_size)
+                # Run the blocking constructor in a thread so the event loop
+                # stays responsive and can accept new reload() requests.
+                new_engine = await self._loop.run_in_executor(
+                    None, lambda: _TranscriptionEngine(config=_make_cfg(model_size))
+                )
+            except Exception as exc:
+                if my_gen != self._load_gen:
+                    return  # superseded during download/load — silently discard
+                if use_gpu and model_size != fallback:
+                    self._on_status(t(
+                        "status.error_fallback",
+                        exc_type=exc.__class__.__name__,
+                        status=loading_status(fallback, lang, use_gpu),
+                    ))
+                    _TranscriptionEngine._instance    = None
+                    _TranscriptionEngine._initialized = False
+                    try:
+                        _maybe_capture(fallback)
+                        new_engine = await self._loop.run_in_executor(
+                            None, lambda: _TranscriptionEngine(config=_make_cfg(fallback))
+                        )
+                    except Exception as fallback_exc:
+                        if my_gen != self._load_gen:
+                            return
+                        self._on_status(t("status.error", exc=fallback_exc))
+                        self._on_ready()
+                        return
+                else:
+                    self._on_status(t("status.error", exc=exc))
                     self._on_ready()
                     return
-            else:
-                self._on_status(t("status.error", exc=exc))
-                self._on_ready()
-                return
-        finally:
-            if _orig_stderr is not None:
-                sys.stderr = _orig_stderr
+            finally:
+                if _orig_stderr is not None:
+                    sys.stderr = _orig_stderr
 
-        self._on_status(t("status.ready", lang=lang))
-        self._on_ready()
+            # Final check: another reload() may have arrived while the executor
+            # thread was running.
+            if my_gen != self._load_gen:
+                return
+
+            self._engine = new_engine
+            self._on_status(t("status.ready", lang=lang))
+            self._on_ready()
 
     # ── Recording session ─────────────────────────────────────────────────────
 
