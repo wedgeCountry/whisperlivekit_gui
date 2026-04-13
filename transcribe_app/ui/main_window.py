@@ -235,6 +235,7 @@ class TranscriptionApp:
         """Enable the record button only when engine is ready AND no session is draining."""
         if self._engine_ready and not self._session_draining:
             self._record_btn.config(state=tk.NORMAL)
+            self._clear_btn.config(state=tk.NORMAL)
 
     # ── Language selector ──────────────────────────────────────────────────────
 
@@ -356,6 +357,7 @@ class TranscriptionApp:
             self._session_mgr    = SessionFileManager(wav_dir=_SESSIONS_DIR, diff_dir=Path.cwd())
             self._mgr.audio_sink = self._session_mgr.write_chunk
 
+        self._clear_btn.config(state=tk.DISABLED)
         self._text.config(state=tk.DISABLED)
         self._text.edit_reset()
         self._mgr.start_session()
