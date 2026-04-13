@@ -57,13 +57,6 @@ def get_model_size(lang: str, speed: str, use_gpu: bool = GPU) -> str:
 
 DEFAULT_LANGUAGE = "Deutsch"
 
-# LanguageTool language codes for grammar correction (language_tool_python).
-# Must match a code accepted by LanguageTool (BCP-47 with region).
-GRAMMAR_LANG_CODES: dict[str, str] = {
-    "Deutsch": "de-DE",
-    "English": "en-US",
-}
-
 SPACE_HOLD_TIME_MS = 300
 
 # Default static prompts fed to Whisper before every audio chunk.

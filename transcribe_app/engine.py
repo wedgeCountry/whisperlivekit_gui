@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from whisperlivekit import diarization
 
 _log = logging.getLogger(__name__)
 
@@ -192,7 +191,7 @@ class EngineManager:
             # Set a generous default socket timeout so that model downloads from
             # openaipublic.azureedge.net or Hugging Face never hang forever in a
             # frozen exe.  The timeout is reset to None once the loop is running.
-            socket.setdefaulttimeout(600)
+            socket.setdefaulttimeout(60)
             try:
                 global _AudioProcessor, _TranscriptionEngine, _WhisperLiveKitConfig
                 from whisperlivekit import AudioProcessor as AP, TranscriptionEngine as TE  # noqa: PLC0415
@@ -295,7 +294,7 @@ class EngineManager:
                     beams=5 if win_cpu else 1,
                     min_chunk_size=0.50 if win_cpu else 0.30,
                     audio_max_len=12.0, audio_min_len=0.20,
-                    direct_english_translation=False,  # diarization=True,
+                    direct_english_translation=False,  # diarization=True ( sprechererkennung ),
                     static_init_prompt=prompt if prompt.strip() else None,
                 )
 

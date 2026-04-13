@@ -11,7 +11,6 @@ from transcribe_app.config import (
     DEFAULT_PROMPTS,
     GPU,
     LANGUAGE_OPTS,
-    GRAMMAR_LANG_CODES,
 )
 from transcribe_app.i18n import UI_LANGUAGES
 
@@ -34,7 +33,6 @@ class Settings:
     mic_gain:       float          = 1.0       # linear amplitude multiplier applied before transcription
     ui_language:    str            = "en"      # interface language code; see i18n.UI_LANGUAGES
     compute_device:     str            = "cuda" if GPU else "cpu"  # "cuda" or "cpu"
-    grammar_correction: bool           = False  # run post-processing through a grammar model
 
 
 def _fill_prompts(raw: object) -> dict[str, str]:
@@ -76,11 +74,6 @@ def load() -> Settings:
     # "cuda" is only valid when GPU hardware is actually present
     compute_device = raw_compute if raw_compute in ("cuda", "cpu") and (raw_compute != "cuda" or GPU) else ("cuda" if GPU else "cpu")
 
-    grammar_correction = bool(data.get("grammar_correction", False))
-    # Silently disable if no language code is defined for the saved language
-    if grammar_correction and lang not in GRAMMAR_LANG_CODES:
-        grammar_correction = False
-
     return Settings(
         language=lang,
         prompts=_fill_prompts(data.get("prompts")),
@@ -89,7 +82,6 @@ def load() -> Settings:
         mic_gain=mic_gain,
         ui_language=ui_language,
         compute_device=compute_device,
-        grammar_correction=grammar_correction,
     )
 
 
@@ -106,7 +98,6 @@ def save(s: Settings) -> None:
                     "mic_gain":           s.mic_gain,
                     "ui_language":        s.ui_language,
                     "compute_device":     s.compute_device,
-                    "grammar_correction": s.grammar_correction,
                 },
                 indent=2,
             ),
