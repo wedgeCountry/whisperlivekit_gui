@@ -458,7 +458,6 @@ class EngineManager:
         # Signal the UI thread to open the mic stream via root.after(0, …)
         self._on_open_mic()
 
-        seen_segments: set[tuple[float | None, float | None, str]] = set()
         committed_text: str = ""
         last_partial = ""
 
@@ -469,26 +468,19 @@ class EngineManager:
                 if my_gen != self._session_gen:
                     break
 
-                changed = False
-
-                # Commit only genuinely new stable segments.
-                # Accumulate into a single string so _on_update never needs to
-                # rebuild the full text from a growing list (would be O(n²)).
-                for seg in front_data.lines:
-                    text = (seg.text or "").strip()
-                    if not text:
-                        continue
-
-                    key = (getattr(seg, "beg", None), getattr(seg, "end", None), text)
-                    if key not in seen_segments:
-                        seen_segments.add(key)
-                        committed_text = committed_text + (" " if committed_text else "") + text
-                        changed = True
-
+                # front_data.lines is the complete current snapshot of committed
+                # segments — treat it as a replacement, not an accumulation.
+                # Accumulating with a seen-set causes duplicates whenever
+                # WhisperLiveKit refines a segment (text or timestamps change).
+                new_committed = " ".join(
+                    (seg.text or "").strip()
+                    for seg in front_data.lines
+                    if (seg.text or "").strip()
+                )
                 partial = (front_data.buffer_transcription or "").strip()
 
-                # Update UI when either stable text or live partial changed
-                if changed or partial != last_partial:
+                if new_committed != committed_text or partial != last_partial:
+                    committed_text = new_committed
                     self._on_update(committed_text, partial)
                     last_partial = partial
 
