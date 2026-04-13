@@ -200,6 +200,13 @@ class TestApplyCommandsFull:
         assert "3. " in result
         assert result.endswith("\nTest.")
 
+        text = """Also das ist ein Test und ich mache eine Überschrift. "SIRVE" - neue Zeile nach dem Test, habe ich noch einen Test."""
+        result = apply_commands_full(text)
+        assert "Überschrift" not in result
+        assert "neue Zeile" not in result
+
+
+
 class TestStripPromptLeak:
     def test_prompt_removed(self):
         assert strip_prompt_leak("Hello prompt world", "prompt") == "Hello  world"

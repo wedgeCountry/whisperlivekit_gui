@@ -21,8 +21,8 @@ _CMDS: list[tuple] = [
     (re.compile(r"[ \t]*\bneuzeile[.,]?\s*",         re.I),       "\n"),   # small-model merges the two words
     (re.compile(r"[ \t]*\bnew\s+paragraph[.,]?\s*",  re.I),       "\n\n"),
     (re.compile(r"[ \t]*\bneuer?\s+absatz[.,]?\s*",  re.I),       "\n\n"),
-    (re.compile(r"(?:(?:^|(?<=[.!?\n]))\s*)heading[.,]?\s+",      re.I | re.M), "\n\n# "),
-    (re.compile(r"(?:(?:^|(?<=[.!?\n]))\s*)überschrift[.,]?\s+",  re.I | re.M), "\n\n# "),
+    (re.compile(r"(?:^|\s+)heading[.,]?\s+",      re.I | re.M), "\n\n# "),
+    (re.compile(r"(?:^|\s+)überschrift[.,]?\s+",  re.I | re.M), "\n\n# "),
 
     # ── Punctuation (DE + EN) ─────────────────────────────────────────────────
     (re.compile(r"\bpunkt\b,?\s*",           re.I), ". "),
