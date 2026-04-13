@@ -53,6 +53,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "status.retranscribing":  "Re-transcribing audio\u2026",
         "status.diff_saved":      "Re-transcribed  \xb7  diff: {name}",
         # ── Settings dialog ────────────────────────────────────────────────────
+        "dlg.settings.asr":         "ASR post-processing:",
         "dlg.settings.title":       "Settings",
         "dlg.settings.language":    "Language:",
         "dlg.settings.model":       "Model:",
@@ -105,6 +106,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "status.retranscribing":  "Audio wird erneut transkribiert\u2026",
         "status.diff_saved":      "Neu transkribiert  \xb7  diff: {name}",
         # ── Settings dialog ────────────────────────────────────────────────────
+        "dlg.settings.asr":         "ASR-Nachbearbeitung:",
         "dlg.settings.title":       "Einstellungen",
         "dlg.settings.language":    "Sprache:",
         "dlg.settings.model":       "Modell:",

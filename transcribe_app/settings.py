@@ -33,6 +33,7 @@ class Settings:
     mic_gain:       float          = 1.0       # linear amplitude multiplier applied before transcription
     ui_language:    str            = "en"      # interface language code; see i18n.UI_LANGUAGES
     compute_device:     str            = "cuda" if GPU else "cpu"  # "cuda" or "cpu"
+    asr_postprocess:    bool           = False  # re-transcribe recording after session ends
 
 
 def _fill_prompts(raw: object) -> dict[str, str]:
@@ -82,6 +83,7 @@ def load() -> Settings:
         mic_gain=mic_gain,
         ui_language=ui_language,
         compute_device=compute_device,
+        asr_postprocess=bool(data.get("asr_postprocess", False)),
     )
 
 
@@ -98,6 +100,7 @@ def save(s: Settings) -> None:
                     "mic_gain":           s.mic_gain,
                     "ui_language":        s.ui_language,
                     "compute_device":     s.compute_device,
+                    "asr_postprocess":    s.asr_postprocess,
                 },
                 indent=2,
             ),

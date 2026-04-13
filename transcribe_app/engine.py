@@ -468,14 +468,15 @@ class EngineManager:
                 processor.process_audio(audio.tobytes()), loop
             )
             # Audio capture for post-recording re-transcription.
-            # Capture with gain applied but WITHOUT the per-chunk peak normalization
-            # (which distorts quiet audio). Better for batch Whisper re-transcription.
+            # indata is already int16 (DTYPE="int16"), so just apply gain and clip —
+            # no further scaling needed.
             sink = self.audio_sink
             if sink is not None:
-                raw = indata.astype(np.float32)
                 if gain != 1.0:
-                    raw = raw * gain
-                sink((raw * 32767).clip(-32768, 32767).astype("int16"))
+                    captured = (indata.astype(np.float32) * gain).clip(-32768, 32767).astype("int16")
+                else:
+                    captured = indata.copy()
+                sink(captured)
 
         stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
