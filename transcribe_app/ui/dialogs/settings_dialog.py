@@ -105,7 +105,14 @@ class SettingsDialog:
             font=F_LABEL,
         ).grid(row=3, column=1, sticky="w", pady=(0, 10))
 
-        # Row 4 — style prompt
+        # Row 4 — ASR post-processing
+        tk.Label(outer, text=t("dlg.settings.asr"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+            row=4, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
+        )
+        self._asr_var = tk.BooleanVar(value=self._settings.asr_postprocess)
+        ttk.Checkbutton(outer, variable=self._asr_var).grid(row=4, column=1, sticky="w", pady=(0, 10))
+
+        # Row 5 — style prompt
         tk.Label(outer, text=t("dlg.settings.prompt"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
             row=5, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
         )
@@ -163,5 +170,6 @@ class SettingsDialog:
             self._settings,
             language=lang, prompts=new_prompts, model_speed=speed,
             ui_language=ui_lang, compute_device=compute_device,
+            asr_postprocess=self._asr_var.get(),
         ))
         self._win.destroy()

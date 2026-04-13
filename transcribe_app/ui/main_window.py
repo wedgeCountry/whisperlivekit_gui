@@ -511,6 +511,27 @@ class TranscriptionApp:
             prefix   = ""
             new_text = body
 
+
+
+        # Launch background re-transcription if audio was captured.
+        session_mgr = self._session_mgr
+        asr = self._mgr.whisper_asr if (session_mgr and session_mgr.wav_paths) else None
+        retranscribed = ""
+
+        # Only proceed when the backend is faster-whisper — other backends (e.g.
+        # SimulStreamingASR) expose a different .transcribe() signature and do not
+        # have a file-based WhisperModel underneath.
+        if asr is not None and hasattr(asr, "model") and hasattr(asr.model, "transcribe"):
+            self._retranscribing = True
+            self._status_var.set(t("status.retranscribing"))
+            lang_prompt = self._settings.prompts[self._settings.language]
+
+            retranscribed = self._do_retranscribe(asr, session_mgr, lang_prompt, new_text)
+            new_text = retranscribed
+
+        if self._session_mgr:
+            self._session_mgr.cleanup()
+
         processed = apply_commands_full(clean(new_text))
         new_text_final = processed if processed is not None else new_text
 
@@ -527,27 +548,10 @@ class TranscriptionApp:
             self._text.see(tk.END)
             self._session_prefix = prefix + new_text_final
 
-        # Launch background re-transcription if audio was captured.
-        session_mgr = self._session_mgr
-        asr = self._mgr.whisper_asr if (session_mgr and session_mgr.wav_paths) else None
-        # Only proceed when the backend is faster-whisper — other backends (e.g.
-        # SimulStreamingASR) expose a different .transcribe() signature and do not
-        # have a file-based WhisperModel underneath.
-        if asr is not None and hasattr(asr, "model") and hasattr(asr.model, "transcribe"):
-            self._retranscribing = True
-            self._status_var.set(t("status.retranscribing"))
-            lang_prompt = self._settings.prompts[self._settings.language]
-            threading.Thread(
-                target=self._retranscribe_runner,
-                args=(asr, session_mgr, lang_prompt, prefix, new_text_final, suffix),
-                daemon=True,
-            ).start()
-            # Button stays disabled until _on_retranscribe_done clears _session_draining.
-        else:
-            self._session_mgr = None
-            self._session_draining = False
-            self._set_record_btn_state()
-            self._status_var.set(t("status.ready", lang=self._settings.language))
+        self._session_mgr = None
+        self._session_draining = False
+        self._set_record_btn_state()
+        self._status_var.set(t("status.ready", lang=self._settings.language))
 
     def _retranscribe_runner(
         self,
