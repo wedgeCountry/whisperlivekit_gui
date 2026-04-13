@@ -13,15 +13,25 @@ Not responsible for
 * Text cleaning / voice commands                      →  text_processing
 """
 
+import difflib
 import logging
 import queue
+import sys
+import threading
 import time
 import tkinter as tk
+import wave
 from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
 
 _log = logging.getLogger(__name__)
+
+_SESSIONS_DIR = (
+    Path.home() / "AppData" / "Roaming" / "transcribe_app" / "sessions"
+    if sys.platform == "win32"
+    else Path.home() / ".config" / "transcribe_app" / "sessions"
+)
 
 from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
 from ..engine import EngineManager, loading_status
@@ -59,6 +69,11 @@ class TranscriptionApp:
         self._absorbed_committed: str   = ""
         self._last_text_time:     float = 0.0
         self._last_display_sig:   str   = ""
+        self._retranscribing:     bool  = False  # True while background re-transcription runs
+        self._audio_recorder:     "object | None" = None   # AudioRecorder during recording
+        self._wav_paths:          list  = []     # WAV files from last session
+        self._session_id_rec:     str   = ""     # session_id from last AudioRecorder
+        self._session_cwd:        Path  = Path.cwd()  # cwd snapshot at recording start
 
         self._mgr = EngineManager(
             on_status=lambda msg: self._ui_queue.put(("status", msg)),
@@ -328,6 +343,13 @@ class TranscriptionApp:
         self._last_display_sig   = ""
 
         self._mgr.mic_gain = self._settings.mic_gain
+
+        # Start audio capture for post-recording re-transcription.
+        from transcribe_app.audio_recorder import AudioRecorder  # noqa: PLC0415
+        self._audio_recorder = AudioRecorder(_SESSIONS_DIR)
+        self._mgr.audio_sink = self._audio_recorder.write_chunk
+        self._session_cwd    = Path.cwd()
+
         self._text.config(state=tk.DISABLED)
         self._text.edit_reset()
         self._mgr.start_session()
@@ -343,6 +365,12 @@ class TranscriptionApp:
         self._status_var.set(t("status.processing"))
         self._text.config(state=tk.NORMAL)
         self._text.edit_reset()
+        self._mgr.audio_sink = None
+        if self._audio_recorder is not None:
+            self._wav_paths      = self._audio_recorder.stop()
+            self._session_id_rec = self._audio_recorder.session_id
+            self._audio_recorder = None
+
         self._mgr.stop_session()
 
     # ── UI queue polling ───────────────────────────────────────────────────────
@@ -353,7 +381,8 @@ class TranscriptionApp:
                 msg = self._ui_queue.get_nowait()
                 match msg[0]:
                     case "status":
-                        self._status_var.set(msg[1])
+                        if not self._retranscribing:
+                            self._status_var.set(msg[1])
                     case "enable_controls":
                         _, ok = msg
                         if ok:
@@ -490,6 +519,104 @@ class TranscriptionApp:
             self._text.see(tk.END)
             self._session_prefix = prefix + new_text_final
 
+        # Launch background re-transcription if audio was captured.
+        wav_paths = list(self._wav_paths)
+        self._wav_paths.clear()
+        asr = self._mgr.whisper_asr if wav_paths else None
+        if asr is not None and hasattr(asr, "transcribe"):
+            self._retranscribing = True
+            self._status_var.set(t("status.retranscribing"))
+            session_id  = self._session_id_rec
+            session_cwd = self._session_cwd
+            lang_prompt = self._settings.prompts[self._settings.language]
+            threading.Thread(
+                target=self._retranscribe_bg,
+                args=(asr, wav_paths, lang_prompt, prefix, new_text_final, suffix,
+                      session_id, session_cwd),
+                daemon=True,
+            ).start()
+        else:
+            self._record_btn.config(state=tk.NORMAL)
+
+    def _retranscribe_bg(
+        self,
+        asr,
+        wav_paths: list,
+        prompt: str,
+        prefix: str,
+        live_text: str,
+        suffix: str,
+        session_id: str,
+        session_cwd: Path,
+    ) -> None:
+        """Background thread: re-transcribe WAV files, write diff, schedule UI update."""
+        import numpy as np  # noqa: PLC0415
+        try:
+            parts: list[str] = []
+            for wav_path in wav_paths:
+                if not Path(wav_path).exists():
+                    _log.warning("Re-transcription: WAV file missing: %s", wav_path)
+                    continue
+                # Load WAV as float32 in [-1, 1] — the format FasterWhisperASR.transcribe() expects.
+                with wave.open(str(wav_path), "rb") as wf:
+                    raw = wf.readframes(wf.getnframes())
+                audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                if audio.size == 0:
+                    continue
+                segments = asr.transcribe(audio, init_prompt=prompt)
+                text = "".join(seg.text for seg in segments).strip()
+                if text:
+                    parts.append(text)
+
+            retranscribed = " ".join(parts).strip()
+
+            # Compute unified diff between live and re-transcribed text.
+            diff_lines = list(difflib.unified_diff(
+                live_text.splitlines(keepends=True),
+                retranscribed.splitlines(keepends=True),
+                fromfile=f"{session_id}_live",
+                tofile=f"{session_id}_retranscribed",
+            ))
+            diff_path = session_cwd / f"{session_id}_diff.txt"
+            diff_path.write_text("".join(diff_lines), encoding="utf-8")
+            _log.info("Re-transcription diff written to %s", diff_path)
+
+        except Exception:
+            _log.error("Re-transcription failed — keeping live text", exc_info=True)
+            retranscribed = live_text
+            diff_path     = None
+
+        self.root.after(0, lambda: self._on_retranscribe_done(
+            prefix, retranscribed, suffix, diff_path
+        ))
+
+    def _on_retranscribe_done(
+        self,
+        prefix: str,
+        retranscribed: str,
+        suffix: str,
+        diff_path: "Path | None",
+    ) -> None:
+        """UI-thread callback: replace text with re-transcribed version, re-enable recording."""
+        self._retranscribing = False
+        self._begin_write()
+        self._text.delete("1.0", tk.END)
+        if prefix:
+            self._text.insert(tk.END, prefix)
+        self._text.insert(tk.END, retranscribed)
+        if suffix:
+            self._text.insert(tk.END, suffix)
+        self._render_markdown()
+        self._end_write()
+        self._text.see(tk.END)
+        self._session_prefix = prefix + retranscribed
+
+        status = (
+            t("status.diff_saved", name=diff_path.name)
+            if diff_path is not None
+            else t("status.ready", lang=self._settings.language)
+        )
+        self._status_var.set(status)
         self._record_btn.config(state=tk.NORMAL)
 
     def _render_markdown(self) -> None:

@@ -138,6 +138,11 @@ class EngineManager:
         self._load_task: asyncio.Task | None    = None
         self._exec_lock: threading.Lock         = threading.Lock()
 
+        # Optional audio capture hook.  Set to a callable before open_mic_stream();
+        # it receives each int16 ndarray chunk (gain-applied, no peak normalization)
+        # from the sounddevice callback thread.  Set to None to disable.
+        self.audio_sink: "Callable[[np.ndarray], None] | None" = None
+
     # ── Startup ───────────────────────────────────────────────────────────────
 
     def start(self, lang: str, prompt: str, speed: str = "normal", compute_device: str = "cuda" if GPU else "cpu") -> None:
@@ -462,6 +467,15 @@ class EngineManager:
             asyncio.run_coroutine_threadsafe(
                 processor.process_audio(audio.tobytes()), loop
             )
+            # Audio capture for post-recording re-transcription.
+            # Capture with gain applied but WITHOUT the per-chunk peak normalization
+            # (which distorts quiet audio). Better for batch Whisper re-transcription.
+            sink = self.audio_sink
+            if sink is not None:
+                raw = indata.astype(np.float32)
+                if gain != 1.0:
+                    raw = raw * gain
+                sink((raw * 32767).clip(-32768, 32767).astype("int16"))
 
         stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
@@ -494,6 +508,17 @@ class EngineManager:
     def dispatch(self, coro) -> "asyncio.Future":
         """Schedule an arbitrary coroutine on the background loop."""
         return asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+    # ── Model access ──────────────────────────────────────────────────────────
+
+    @property
+    def whisper_asr(self) -> "object | None":
+        """The FasterWhisperASR backend, or None if the model is not yet loaded.
+
+        Exposes .transcribe(audio_float32, init_prompt="") and .original_language.
+        Safe to read from the UI thread once a session has finished.
+        """
+        return getattr(self._engine, "asr", None)
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
 

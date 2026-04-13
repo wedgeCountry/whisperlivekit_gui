@@ -50,6 +50,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "status.error_fallback":  "Error loading ({exc_type}), fallback: {status}",
         "status.critical_error":  "Critical error: {exc}",
         "status.warn_no_avx512":  "Ready  \xb7  {lang} model loaded  \u26a0 No AVX-512 \u2014 performance may be reduced",
+        "status.retranscribing":  "Re-transcribing audio\u2026",
+        "status.diff_saved":      "Re-transcribed  \xb7  diff: {name}",
         # ── Settings dialog ────────────────────────────────────────────────────
         "dlg.settings.title":       "Settings",
         "dlg.settings.language":    "Language:",
@@ -100,6 +102,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "status.error_fallback":  "Fehler beim Laden ({exc_type}), Fallback: {status}",
         "status.critical_error":  "Kritischer Fehler: {exc}",
         "status.warn_no_avx512":  "Bereit  \xb7  {lang} Modell geladen  \u26a0 Kein AVX-512 \u2014 Leistung eingeschr\xe4nkt",
+        "status.retranscribing":  "Audio wird erneut transkribiert\u2026",
+        "status.diff_saved":      "Neu transkribiert  \xb7  diff: {name}",
         # ── Settings dialog ────────────────────────────────────────────────────
         "dlg.settings.title":       "Einstellungen",
         "dlg.settings.language":    "Sprache:",
