@@ -72,6 +72,8 @@ class TranscriptionApp:
         self._last_display_sig:   str   = ""
         self._retranscribing: bool          = False  # True while background re-transcription runs
         self._session_mgr:    "object | None" = None  # SessionFileManager for active/last session
+        self._engine_ready:   bool          = False  # True once on_ready(True) arrives; False during reload
+        self._session_draining: bool        = False  # True between stop_session() and _postprocess() completing
 
         self._mgr = EngineManager(
             on_status=lambda msg: self._ui_queue.put(("status", msg)),
@@ -229,6 +231,11 @@ class TranscriptionApp:
         self.root.bind("<KeyPress-space>",   self._on_space_press)   # catch when text not focused
         self.root.bind("<KeyRelease-space>", self._on_space_release)
 
+    def _set_record_btn_state(self) -> None:
+        """Enable the record button only when engine is ready AND no session is draining."""
+        if self._engine_ready and not self._session_draining:
+            self._record_btn.config(state=tk.NORMAL)
+
     # ── Language selector ──────────────────────────────────────────────────────
 
     def _on_language_change(self, _event=None) -> None:
@@ -276,6 +283,7 @@ class TranscriptionApp:
     def _reload_engine(self, lang: str) -> None:
         if self._recording:
             self._stop_recording()
+        self._engine_ready = False
         self._record_btn.config(state=tk.DISABLED)
         use_gpu = self._settings.compute_device == "cuda"
         self._status_var.set(loading_status(get_model_size(lang, self._settings.model_speed, use_gpu), lang, use_gpu))
@@ -354,6 +362,7 @@ class TranscriptionApp:
 
     def _stop_recording(self) -> None:
         self._recording = False
+        self._session_draining = True
         self._record_btn.config(
             text=t("btn.record"),
             bg=C_ACCENT, activebackground=C_ACCENT_H,
@@ -381,8 +390,9 @@ class TranscriptionApp:
                             self._status_var.set(msg[1])
                     case "enable_controls":
                         _, ok = msg
+                        self._engine_ready = ok
                         if ok:
-                            self._record_btn.config(state=tk.NORMAL)
+                            self._set_record_btn_state()
                         # else: keep disabled — status bar already shows the error
                         self.root.config(cursor="")
                     case "update":
@@ -530,9 +540,12 @@ class TranscriptionApp:
                 args=(asr, session_mgr, lang_prompt, prefix, new_text_final, suffix),
                 daemon=True,
             ).start()
+            # Button stays disabled until _on_retranscribe_done clears _session_draining.
         else:
             self._session_mgr = None
-            self._record_btn.config(state=tk.NORMAL)
+            self._session_draining = False
+            self._set_record_btn_state()
+            self._status_var.set(t("status.ready", lang=self._settings.language))
 
     def _retranscribe_runner(
         self,
@@ -636,7 +649,8 @@ class TranscriptionApp:
 
         session_mgr.cleanup()
         self._session_mgr = None
-        self._record_btn.config(state=tk.NORMAL)
+        self._session_draining = False
+        self._set_record_btn_state()
 
     def _render_markdown(self) -> None:
         for tag in ("h1", "h2", "h3", "para_space"):

@@ -138,6 +138,15 @@ class EngineManager:
         self._load_task: asyncio.Task | None    = None
         self._exec_lock: threading.Lock         = threading.Lock()
 
+        # Session cancellation state.
+        #
+        # _session_gen  — incremented on every start_session(); _run_session
+        #                 snapshots it at entry and skips callbacks if superseded.
+        # _session_task — the running asyncio.Task; cancelled in start_session()
+        #                 so a still-draining old session never races the new one.
+        self._session_gen:  int                  = 0
+        self._session_task: asyncio.Task | None  = None
+
         # Optional audio capture hook.  Set to a callable before open_mic_stream();
         # it receives each int16 ndarray chunk (gain-applied, no peak normalization)
         # from the sounddevice callback thread.  Set to None to disable.
@@ -425,23 +434,83 @@ class EngineManager:
     def start_session(self) -> None:
         """Begin a transcription session. Call from the UI thread."""
         self._recording = True
-        asyncio.run_coroutine_threadsafe(self._run_session(), self._loop)
+
+        def _schedule() -> None:
+            # Cancel any still-draining session from a previous recording so
+            # it can never race the new one and fire stale UI callbacks.
+            if self._session_task is not None and not self._session_task.done():
+                self._session_task.cancel()
+            self._session_task = self._loop.create_task(self._run_session())  # type: ignore[union-attr]
+
+        self._loop.call_soon_threadsafe(_schedule)  # type: ignore[union-attr]
 
     async def _run_session(self) -> None:
-        self._processor = _AudioProcessor(transcription_engine=self._engine)
-        results_gen = await self._processor.create_tasks()
+        # Stamp this session so callbacks from a superseded session are silently
+        # dropped even if the coroutine is still draining on the event loop.
+        self._session_gen += 1
+        my_gen = self._session_gen
+
+        # Keep a local reference so the finally block always cleans up *this*
+        # session's processor, not a replacement created by a concurrent restart.
+        processor = _AudioProcessor(transcription_engine=self._engine)
+        self._processor = processor
+        results_gen = await processor.create_tasks()
         # Signal the UI thread to open the mic stream via root.after(0, …)
         self._on_open_mic()
 
-        committed_text = ""
-        async for front_data in results_gen:
-            lines_text = " ".join(seg.text for seg in front_data.lines if seg.text)
-            if lines_text and lines_text != committed_text:
-                committed_text = lines_text
-            self._on_update(committed_text, front_data.buffer_transcription or "")
+        seen_segments: set[tuple[float | None, float | None, str]] = set()
+        committed_parts: list[str] = []
+        last_partial = ""
 
-        self._on_finalise(committed_text)
-        self._on_status(t("status.ready", lang=self._lang))
+        try:
+            async for front_data in results_gen:
+                # A new session was started (or this task was cancelled) — stop
+                # updating the UI immediately so only one session drives the display.
+                if my_gen != self._session_gen:
+                    break
+
+                changed = False
+
+                # Commit only genuinely new stable segments
+                for seg in front_data.lines:
+                    text = (seg.text or "").strip()
+                    if not text:
+                        continue
+
+                    key = (getattr(seg, "beg", None), getattr(seg, "end", None), text)
+                    if key not in seen_segments:
+                        seen_segments.add(key)
+                        committed_parts.append(text)
+                        changed = True
+
+                partial = (front_data.buffer_transcription or "").strip()
+
+                # Update UI when either stable text or live partial changed
+                if changed or partial != last_partial:
+                    self._on_update(" ".join(committed_parts), partial)
+                    last_partial = partial
+
+            # Only finalise if this session was not superseded by a restart.
+            if my_gen == self._session_gen:
+                final_text = " ".join(
+                    committed_parts + ([last_partial] if last_partial else [])
+                )
+                self._on_finalise(final_text)
+
+        finally:
+            try:
+                await processor.process_audio(b"")
+            except Exception:
+                pass
+            try:
+                await results_gen.aclose()
+            except Exception:
+                pass
+            try:
+                await processor.process_audio(b"")
+                await processor.cleanup()
+            except Exception:
+                pass
 
     def open_mic_stream(self, device: int | None = None) -> None:
         """Open the sounddevice InputStream. Must be called from the UI thread
