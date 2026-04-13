@@ -459,7 +459,7 @@ class EngineManager:
         self._on_open_mic()
 
         seen_segments: set[tuple[float | None, float | None, str]] = set()
-        committed_parts: list[str] = []
+        committed_text: str = ""
         last_partial = ""
 
         try:
@@ -471,7 +471,9 @@ class EngineManager:
 
                 changed = False
 
-                # Commit only genuinely new stable segments
+                # Commit only genuinely new stable segments.
+                # Accumulate into a single string so _on_update never needs to
+                # rebuild the full text from a growing list (would be O(n²)).
                 for seg in front_data.lines:
                     text = (seg.text or "").strip()
                     if not text:
@@ -480,21 +482,19 @@ class EngineManager:
                     key = (getattr(seg, "beg", None), getattr(seg, "end", None), text)
                     if key not in seen_segments:
                         seen_segments.add(key)
-                        committed_parts.append(text)
+                        committed_text = committed_text + (" " if committed_text else "") + text
                         changed = True
 
                 partial = (front_data.buffer_transcription or "").strip()
 
                 # Update UI when either stable text or live partial changed
                 if changed or partial != last_partial:
-                    self._on_update(" ".join(committed_parts), partial)
+                    self._on_update(committed_text, partial)
                     last_partial = partial
 
             # Only finalise if this session was not superseded by a restart.
             if my_gen == self._session_gen:
-                final_text = " ".join(
-                    committed_parts + ([last_partial] if last_partial else [])
-                )
+                final_text = (committed_text + " " + last_partial).strip() if last_partial else committed_text
                 self._on_finalise(final_text)
 
         finally:
