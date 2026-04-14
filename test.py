@@ -1,8 +1,9 @@
 import time
 import logging
+import asyncio
 from dataclasses import dataclass
-from collections import deque
-from threading import Event
+from threading import Event, Lock, Thread
+from queue import Queue, Full
 
 import numpy as np
 import sounddevice as sd
@@ -11,15 +12,13 @@ from faster_whisper import WhisperModel
 
 
 # -----------------------------
-# CONFIGURATION
+# CONFIG
 # -----------------------------
 @dataclass(frozen=True)
 class Config:
-    # Audio
     sample_rate: int = 16000
     frame_ms: int = 30
 
-    # VAD
     vad_aggressiveness: int = 2
 
     # Speech segmentation
@@ -34,16 +33,12 @@ class Config:
     device: str = "cuda"
     compute_type: str = "float16"
 
-    # Language
     language: str = "auto"
 
-    # 💾 File writing config
-    file_mode: str = "append"   # "append" | "overwrite"
-    write_each_session: bool = True
-    output_prefix: str = "session"
+    queue_size: int = 200
 
-    # 🧠 Buffer writing control
-    write_empty_sessions: bool = False
+    file_mode: str = "append"
+    output_prefix: str = "session"
 
 
 # -----------------------------
@@ -51,179 +46,204 @@ class Config:
 # -----------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 )
-logger = logging.getLogger("speech-to-text")
+log = logging.getLogger("asr")
 
 
 # -----------------------------
 # ENGINE
 # -----------------------------
 class SpeechToTextEngine:
-    def __init__(self, config: Config):
-        self.config = config
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
 
-        self.frame_size = int(config.sample_rate * config.frame_ms / 1000)
+        self.frame_size = int(cfg.sample_rate * cfg.frame_ms / 1000)
 
-        self.vad = webrtcvad.Vad(config.vad_aggressiveness)
+        self.vad = webrtcvad.Vad(cfg.vad_aggressiveness)
         self.model = WhisperModel(
-            config.model_size,
-            device=config.device,
-            compute_type=config.compute_type
+            cfg.model_size,
+            device=cfg.device,
+            compute_type=cfg.compute_type
         )
 
-        self.buffer = deque()
-        self.last_speech_time = None
+        # 🔒 thread-safe audio queue (callback → worker)
+        self.audio_q: Queue = Queue(maxsize=cfg.queue_size)
+
+        # buffer is ONLY used in worker thread
+        self.buffer = []
+
+        # state (worker-owned → no race conditions)
+        self.last_voice = time.time()
         self.session_id = 0
 
         self.stop_event = Event()
+        self.lock = Lock()
+
+        self.loop = asyncio.new_event_loop()
 
     # -------------------------
-    # FILE WRITING
+    # CALLBACK (ZERO LOGIC)
     # -------------------------
-    def write_session(self, text: str, sid: int) -> None:
-        if not text and not self.config.write_empty_sessions:
-            return
+    def audio_callback(self, indata, frames, time_info, status):
+        if status:
+            log.warning(status)
 
-        filename = f"{self.config.output_prefix}_{sid}.txt"
+        frame = (indata[:, 0] * 32768).astype(np.int16)
 
-        mode = "w" if self.config.file_mode == "overwrite" else "a"
-
-        with open(filename, mode, encoding="utf-8") as f:
-            f.write(text.strip() + "\n")
-
-        logger.info(f"💾 Wrote session {sid} ({mode})")
+        try:
+            self.audio_q.put_nowait(frame)
+        except Full:
+            # 🔥 backpressure safety (drop frame)
+            pass
 
     # -------------------------
     # VAD
     # -------------------------
     def is_speech(self, frame: np.ndarray) -> bool:
-        try:
-            return self.vad.is_speech(frame.tobytes(), self.config.sample_rate)
-        except Exception as e:
-            logger.error(f"VAD error: {e}")
-            return False
+        return self.vad.is_speech(frame.tobytes(), self.cfg.sample_rate)
 
     # -------------------------
-    # AUDIO CALLBACK
+    # WORKER THREAD
     # -------------------------
-    def audio_callback(self, indata, frames, time_info, status):
-        if status:
-            logger.warning(status)
+    def worker(self):
+        log.info("worker started")
 
-        if self.stop_event.is_set():
-            return
-
-        try:
-            frame = (indata[:, 0] * 32768).astype(np.int16)
-
-            if len(frame) != self.frame_size:
-                return
+        while not self.stop_event.is_set():
+            try:
+                frame = self.audio_q.get(timeout=0.5)
+            except:
+                continue
 
             now = time.time()
             speech = self.is_speech(frame)
 
             if speech:
                 self.buffer.append(frame)
-                self.last_speech_time = now
-                return
+                self.last_voice = now
+                continue
 
-            # -------------------------
-            # SILENCE DETECTION
-            # -------------------------
-            if (
-                self.last_speech_time
-                and (now - self.last_speech_time > self.config.silence_limit)
-            ):
-                self.flush_buffer()
-
-        except Exception as e:
-            logger.exception(f"Audio callback error: {e}")
+            # silence detection
+            if self.buffer and (now - self.last_voice > self.cfg.silence_limit):
+                self.flush()
 
     # -------------------------
-    # BUFFER MANAGEMENT
+    # SAFE FLUSH (worker-owned)
     # -------------------------
-    def flush_buffer(self):
-        if not self.buffer:
-            return
-
-        if len(self.buffer) < self.config.min_buffer_chunks:
-            logger.info("⏭ Skipping short buffer")
+    def flush(self):
+        if len(self.buffer) < self.cfg.min_buffer_chunks:
             self.buffer.clear()
             return
 
-        audio = np.concatenate(list(self.buffer))
+        audio = np.concatenate(self.buffer)
         self.buffer.clear()
 
-        # safety cap
-        max_samples = int(self.config.max_buffer_seconds * self.config.sample_rate)
+        # cap size
+        max_samples = int(self.cfg.max_buffer_seconds * self.cfg.sample_rate)
         if len(audio) > max_samples:
             audio = audio[-max_samples:]
 
-        self.process_audio(audio, self.session_id)
+        sid = self.session_id
         self.session_id += 1
 
-    # -------------------------
-    # TRANSCRIPTION
-    # -------------------------
-    def process_audio(self, audio: np.ndarray, sid: int):
-        logger.info(f"🧠 Transcribing session {sid}...")
-
-        audio = audio.astype(np.float32) / 32768.0
-
-        language = None if self.config.language == "auto" else self.config.language
-
-        segments, _ = self.model.transcribe(
-            audio,
-            vad_filter=False,
-            language=language
+        asyncio.run_coroutine_threadsafe(
+            self.transcribe(audio, sid),
+            self.loop
         )
 
-        text = " ".join(seg.text.strip() for seg in segments).strip()
+    # -------------------------
+    # ASYNC TRANSCRIPTION (SAFE)
+    # -------------------------
+    async def transcribe(self, audio: np.ndarray, sid: int):
+        log.info(f"🧠 session {sid}")
 
-        if text:
-            logger.info(f"📝 RESULT: {text}")
-            self.write_session(text, sid)
+        audio = audio.astype(np.float32) / 32768.0
+        language = None if self.cfg.language == "auto" else self.cfg.language
+
+        def _run():
+            segments, _ = self.model.transcribe(
+                audio,
+                vad_filter=False,
+                #beam_size=2,
+                initial_prompt="Sirve",
+                log_prob_threshold=-1.0,
+                language=language
+            )
+            return " ".join(s.text.strip() for s in segments)
+
+        text = await asyncio.to_thread(_run)
+
+        if text.strip():
+            log.info(f"📝 {text}")
+            with open(f"{self.cfg.output_prefix}_{sid}.txt", "a", encoding="utf-8") as f:
+                f.write(text + "\n")
 
     # -------------------------
-    # RUN LOOP
+    # EVENT LOOP THREAD
+    # -------------------------
+    def start_loop(self):
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
+
+    # -------------------------
+    # RUN
     # -------------------------
     def run(self):
-        logger.info("🎤 Engine started")
-        logger.info(f"🌐 Language: {self.config.language}")
-        logger.info(f"⏱ Silence limit: {self.config.silence_limit}s")
-        logger.info(f"💾 File mode: {self.config.file_mode}")
+        log.info("🎤 starting engine")
 
-        try:
-            with sd.InputStream(
-                samplerate=self.config.sample_rate,
-                channels=1,
-                dtype="float32",
-                blocksize=self.frame_size,
-                callback=self.audio_callback,
-            ):
+        Thread(target=self.start_loop, daemon=True).start()
+        Thread(target=self.worker, daemon=True).start()
+
+        with sd.InputStream(
+            samplerate=self.cfg.sample_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=self.frame_size,
+            latency="high",
+            callback=self.audio_callback,
+        ):
+            try:
                 while not self.stop_event.is_set():
                     sd.sleep(500)
+            except KeyboardInterrupt:
+                self.stop_event.set()
+                log.info("stopping engine")
 
-        except KeyboardInterrupt:
-            logger.info("Shutdown requested")
-
-        finally:
-            self.stop_event.set()
-            logger.info("Engine stopped cleanly")
-
-
-# -----------------------------
-# ENTRY
-# -----------------------------
 if __name__ == "__main__":
     config = Config(
-        language="de", # "auto"
-        silence_limit=0.6,          # ⏱ tweak silence detection
-        file_mode="append",         # 💾 append or overwrite
-        min_buffer_chunks=6,        # 🧠 require more speech before processing
-        write_each_session=True
+        # 🌍 language
+        language="de",   # or "auto"
+
+        # ⏱ segmentation tuning
+        silence_limit=0.5,
+        min_buffer_chunks=10,
+
+        # 🧠 buffer safety
+        max_buffer_seconds=30.0,
+
+        # 🎧 audio config
+        sample_rate=16000,
+        frame_ms=30,
+
+        # ⚙️ VAD
+        vad_aggressiveness=2,
+
+        # 🤖 model
+        model_size="base",
+        device="cpu",            # fallback to "cpu" if needed
+        compute_type="int8",   # change to "int8_float16" if CUDA errors
+
+        # 💾 output
+        file_mode="append",
+        output_prefix="session",
+
+        # 🔥 queue safety
+        queue_size=200,
     )
 
     engine = SpeechToTextEngine(config)
-    engine.run()
+
+    try:
+        engine.run()
+    except KeyboardInterrupt:
+        print("\n🛑 Shutdown requested by user")
