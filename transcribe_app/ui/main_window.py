@@ -576,8 +576,12 @@ class TranscriptionApp:
             self._retranscribing = True
             self._status_var.set(t("status.retranscribing"))
 
-            retranscribed = self._do_retranscribe(session_mgr, new_text)
-            # TODO: Check the diff: new_text = retranscribed
+            try:
+                retranscribed = self._do_retranscribe(session_mgr, new_text)
+                new_text = retranscribed
+            except Exception as e:
+                _log.error(str(e) + "\n" + "\n".join(traceback.format_exception(*sys.exc_info())))
+                # use the live text
 
         if self._session_mgr:
             self._session_mgr.cleanup()
@@ -602,36 +606,6 @@ class TranscriptionApp:
         self._session_draining = False
         self._set_record_btn_state()
         self._status_var.set(t("status.ready", lang=self._settings.language))
-
-    def _retranscribe_runner(
-        self,
-        asr,
-        session_mgr,
-        prompt: str,
-        prefix: str,
-        live_text: str,
-        suffix: str,
-    ) -> None:
-        """Background thread: submit transcription to an executor, block with a
-        timeout, then schedule the UI update.  Never fire-and-forget."""
-        retranscribed = live_text
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(
-                self._do_retranscribe, asr, session_mgr, prompt, live_text
-            )
-            try:
-                retranscribed = future.result(timeout=_RETRANSCRIBE_TIMEOUT_S)
-            except concurrent.futures.TimeoutError:
-                _log.error(
-                    "Re-transcription timed out after %d s — keeping live text",
-                    _RETRANSCRIBE_TIMEOUT_S,
-                )
-            except Exception:
-                _log.error("Re-transcription failed — keeping live text", exc_info=True)
-
-        self.root.after(0, lambda: self._on_retranscribe_done(
-            session_mgr, prefix, retranscribed, suffix
-        ))
 
     def _do_retranscribe(self, session_mgr: SessionFileManager, live_text: str) -> str:
         """Executor task: transcribe WAV files via faster-whisper, write diff.
@@ -667,11 +641,7 @@ class TranscriptionApp:
         # normalize audio so that it can be read by whisper
         audio: np.ndarray = np.concatenate(parts).astype(np.float32) / 32768.0
 
-        try:
-            retranscribed = engine.transcribe_internal(audio)
-        except Exception as e:
-            _log.error(str(e) + "\n" + "\n".join(traceback.format_exception(*sys.exc_info())))
-            return live_text
+        retranscribed = engine.transcribe_internal(audio)
 
         sid = session_mgr.session_id
         diff_lines = list(difflib.unified_diff(
