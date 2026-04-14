@@ -7,3 +7,4 @@ sounddevice
 language_tool_python
 pyinstaller
 pytest
+webrtcvad

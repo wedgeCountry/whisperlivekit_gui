@@ -1,9 +1,10 @@
+import sys
 import time
 import logging
 import asyncio
 from dataclasses import dataclass
-from threading import Event, Lock, Thread
-from queue import Queue, Full
+from threading import Event, Thread
+from queue import Queue, Full, Empty
 
 import numpy as np
 import sounddevice as sd
@@ -30,15 +31,22 @@ class Config:
 
     # Model
     model_size: str = "base"
-    device: str = "cuda"
-    compute_type: str = "float16"
+    device: str = "cpu"
+    compute_type: str = "int8"
 
     language: str = "auto"
+    initial_prompt: str = ""
 
     queue_size: int = 200
 
-    file_mode: str = "append"
-    output_prefix: str = "session"
+    # Output mode: "file" | "stream" | "queue" | "print"
+    #   file   — append each result to {output_prefix}.txt
+    #   stream — write to output_stream (default: sys.stdout)
+    #   queue  — put results into engine.result_queue for the caller to consume
+    #   print  — call print() for each result
+    output_mode: str = "stream"
+    output_prefix: str = "session"  # used by "file" mode
+    output_stream: object = None    # used by "stream" mode; None → sys.stdout
 
 
 # -----------------------------
@@ -67,10 +75,16 @@ class SpeechToTextEngine:
             compute_type=cfg.compute_type
         )
 
-        # 🔒 thread-safe audio queue (callback → worker)
+        # thread-safe audio queue (callback → worker)
         self.audio_q: Queue = Queue(maxsize=cfg.queue_size)
 
-        # buffer is ONLY used in worker thread
+        # result queue — populated only in "queue" output mode
+        self.result_queue: Queue = Queue()
+
+        # resolved output stream for "stream" mode
+        self._output_stream = cfg.output_stream if cfg.output_stream is not None else sys.stdout
+
+        # buffer is ONLY used in worker thread (no locking needed)
         self.buffer = []
 
         # state (worker-owned → no race conditions)
@@ -78,8 +92,6 @@ class SpeechToTextEngine:
         self.session_id = 0
 
         self.stop_event = Event()
-        self.lock = Lock()
-
         self.loop = asyncio.new_event_loop()
 
     # -------------------------
@@ -94,8 +106,7 @@ class SpeechToTextEngine:
         try:
             self.audio_q.put_nowait(frame)
         except Full:
-            # 🔥 backpressure safety (drop frame)
-            pass
+            pass  # drop frame under backpressure
 
     # -------------------------
     # VAD
@@ -112,7 +123,7 @@ class SpeechToTextEngine:
         while not self.stop_event.is_set():
             try:
                 frame = self.audio_q.get(timeout=0.5)
-            except:
+            except Empty:
                 continue
 
             now = time.time()
@@ -152,31 +163,51 @@ class SpeechToTextEngine:
         )
 
     # -------------------------
-    # ASYNC TRANSCRIPTION (SAFE)
+    # ASYNC TRANSCRIPTION
     # -------------------------
     async def transcribe(self, audio: np.ndarray, sid: int):
-        log.info(f"🧠 session {sid}")
+        log.info(f"transcribing session {sid}")
 
         audio = audio.astype(np.float32) / 32768.0
         language = None if self.cfg.language == "auto" else self.cfg.language
+        initial_prompt = self.cfg.initial_prompt or None
 
         def _run():
             segments, _ = self.model.transcribe(
                 audio,
                 vad_filter=False,
-                #beam_size=2,
-                initial_prompt="Sirve",
+                initial_prompt=initial_prompt,
                 log_prob_threshold=-1.0,
-                language=language
+                language=language,
             )
             return " ".join(s.text.strip() for s in segments)
 
         text = await asyncio.to_thread(_run)
 
         if text.strip():
-            log.info(f"📝 {text}")
-            with open(f"{self.cfg.output_prefix}_{sid}.txt", "a", encoding="utf-8") as f:
+            log.info(f"session {sid}: {text[:80]}")
+            self._emit(text)
+
+    # -------------------------
+    # OUTPUT DISPATCH
+    # -------------------------
+    def _emit(self, text: str):
+        mode = self.cfg.output_mode
+        if mode == "file":
+            with open(f"{self.cfg.output_prefix}.txt", "a", encoding="utf-8") as f:
                 f.write(text + "\n")
+        elif mode == "stream":
+            self._output_stream.write(text + "\n")
+            self._output_stream.flush()
+        elif mode == "queue":
+            try:
+                self.result_queue.put_nowait(text)
+            except Full:
+                log.warning("result_queue full — dropping result")
+        elif mode == "print":
+            print(text)
+        else:
+            raise ValueError(f"unknown output_mode: {mode!r}")
 
     # -------------------------
     # EVENT LOOP THREAD
@@ -189,9 +220,10 @@ class SpeechToTextEngine:
     # RUN
     # -------------------------
     def run(self):
-        log.info("🎤 starting engine")
+        log.info("starting engine")
 
-        Thread(target=self.start_loop, daemon=True).start()
+        loop_thread = Thread(target=self.start_loop, daemon=True)
+        loop_thread.start()
         Thread(target=self.worker, daemon=True).start()
 
         with sd.InputStream(
@@ -206,38 +238,43 @@ class SpeechToTextEngine:
                 while not self.stop_event.is_set():
                     sd.sleep(500)
             except KeyboardInterrupt:
+                pass
+            finally:
                 self.stop_event.set()
-                log.info("stopping engine")
+                self.loop.call_soon_threadsafe(self.loop.stop)
+                loop_thread.join(timeout=5)
+                log.info("engine stopped")
+
 
 if __name__ == "__main__":
     config = Config(
-        # 🌍 language
+        # language
         language="de",   # or "auto"
 
-        # ⏱ segmentation tuning
+        # segmentation tuning
         silence_limit=0.5,
         min_buffer_chunks=10,
 
-        # 🧠 buffer safety
+        # buffer safety
         max_buffer_seconds=30.0,
 
-        # 🎧 audio config
+        # audio config
         sample_rate=16000,
         frame_ms=30,
 
-        # ⚙️ VAD
+        # VAD
         vad_aggressiveness=2,
 
-        # 🤖 model
+        # model
         model_size="base",
-        device="cpu",            # fallback to "cpu" if needed
-        compute_type="int8",   # change to "int8_float16" if CUDA errors
+        device="cpu",
+        compute_type="int8",
 
-        # 💾 output
-        file_mode="append",
+        # output
+        output_mode="stream",   # "file" | "stream" | "queue" | "print"
         output_prefix="session",
 
-        # 🔥 queue safety
+        # queue safety
         queue_size=200,
     )
 
@@ -246,4 +283,4 @@ if __name__ == "__main__":
     try:
         engine.run()
     except KeyboardInterrupt:
-        print("\n🛑 Shutdown requested by user")
+        print("\nShutdown requested by user")
