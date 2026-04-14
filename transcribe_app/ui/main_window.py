@@ -35,7 +35,8 @@ _SESSIONS_DIR = (
 _RETRANSCRIBE_TIMEOUT_S = 120   # max seconds to wait for re-transcription before giving up
 
 from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
-from ..engine import EngineManager, loading_status
+from ..engine import loading_status
+from ..engine_manager import EngineManager
 from ..i18n import set_language, t
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
