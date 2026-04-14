@@ -5,6 +5,7 @@ from typing import Callable
 
 from ..theme import C_BG, C_SURFACE, C_TEXT, C_BORDER, C_MUTED, F_SMALL, F_LABEL, make_btn, center_on_parent
 from transcribe_app.config import GPU, LANGUAGE_OPTS, DEFAULT_PROMPTS, get_model_size
+from transcribe_app.engine_protocol import ENGINE_LABELS, ENGINE_TYPES
 from transcribe_app.i18n import UI_LANGUAGES, t
 from transcribe_app.settings import Settings
 
@@ -112,12 +113,26 @@ class SettingsDialog:
         self._asr_var = tk.BooleanVar(value=self._settings.asr_postprocess)
         ttk.Checkbutton(outer, variable=self._asr_var).grid(row=4, column=1, sticky="w", pady=(0, 10))
 
-        # Row 5 — style prompt
+        # Row 5 — engine backend
+        tk.Label(outer, text=t("dlg.settings.engine"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+            row=5, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
+        )
+        self._engine_var = tk.StringVar(value=ENGINE_LABELS[self._settings.engine_type])
+        ttk.Combobox(
+            outer,
+            textvariable=self._engine_var,
+            values=[ENGINE_LABELS[k] for k in ENGINE_TYPES],
+            state="readonly",
+            width=24,
+            font=F_LABEL,
+        ).grid(row=5, column=1, sticky="w", pady=(0, 10))
+
+        # Row 6 — style prompt
         tk.Label(outer, text=t("dlg.settings.prompt"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
-            row=5, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
+            row=6, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
         )
         border = tk.Frame(outer, bg=C_BORDER)
-        border.grid(row=5, column=1, sticky="ew", pady=(0, 12))
+        border.grid(row=6, column=1, sticky="ew", pady=(0, 12))
 
         self._prompt_text = tk.Text(
             border,
@@ -132,7 +147,7 @@ class SettingsDialog:
         self._lang_var.trace_add("write", self._on_lang_change)
 
         btn_row = tk.Frame(outer, bg=C_BG)
-        btn_row.grid(row=5, column=0, columnspan=2, sticky="e")
+        btn_row.grid(row=7, column=0, columnspan=2, sticky="e")
         make_btn(btn_row, t("dlg.settings.reset"), self._reset).pack(side=tk.LEFT, padx=(0, 8))
         make_btn(btn_row, t("dlg.settings.save"), self._save, primary=True).pack(side=tk.LEFT)
 
@@ -165,11 +180,13 @@ class SettingsDialog:
         speed          = self._speed_key(self._speed_var.get())
         ui_lang        = next((k for k, v in UI_LANGUAGES.items() if v == self._ui_lang_var.get()), "en")
         compute_device = self._device_var.get()
+        engine_type    = next((k for k, v in ENGINE_LABELS.items() if v == self._engine_var.get()), "whisperlive")
         new_prompts    = {**self._settings.prompts, lang: self._prompt_text.get("1.0", tk.END).strip()}
         self._on_save(replace(
             self._settings,
             language=lang, prompts=new_prompts, model_speed=speed,
             ui_language=ui_lang, compute_device=compute_device,
             asr_postprocess=self._asr_var.get(),
+            engine_type=engine_type,
         ))
         self._win.destroy()

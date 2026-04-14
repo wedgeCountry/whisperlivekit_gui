@@ -34,6 +34,7 @@ class Settings:
     ui_language:    str            = "en"      # interface language code; see i18n.UI_LANGUAGES
     compute_device:     str            = "cuda" if GPU else "cpu"  # "cuda" or "cpu"
     asr_postprocess:    bool           = False  # re-transcribe recording after session ends
+    engine_type:        str            = "whisperlive"  # "whisperlive" | "faster_whisper"
 
 
 def _fill_prompts(raw: object) -> dict[str, str]:
@@ -75,6 +76,10 @@ def load() -> Settings:
     # "cuda" is only valid when GPU hardware is actually present
     compute_device = raw_compute if raw_compute in ("cuda", "cpu") and (raw_compute != "cuda" or GPU) else ("cuda" if GPU else "cpu")
 
+    from transcribe_app.engine_protocol import ENGINE_TYPES  # noqa: PLC0415
+    raw_engine = data.get("engine_type", "whisperlive")
+    engine_type = raw_engine if raw_engine in ENGINE_TYPES else "whisperlive"
+
     return Settings(
         language=lang,
         prompts=_fill_prompts(data.get("prompts")),
@@ -84,6 +89,7 @@ def load() -> Settings:
         ui_language=ui_language,
         compute_device=compute_device,
         asr_postprocess=bool(data.get("asr_postprocess", False)),
+        engine_type=engine_type,
     )
 
 
@@ -101,6 +107,7 @@ def save(s: Settings) -> None:
                     "ui_language":        s.ui_language,
                     "compute_device":     s.compute_device,
                     "asr_postprocess":    s.asr_postprocess,
+                    "engine_type":        s.engine_type,
                 },
                 indent=2,
             ),

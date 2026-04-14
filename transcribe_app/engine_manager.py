@@ -21,6 +21,7 @@ _log = logging.getLogger(__name__)
 
 from transcribe_app.config import CHUNK_SECONDS, CHANNELS, DTYPE, GPU, IS_WINDOWS, SAMPLE_RATE
 from transcribe_app.engine import AsyncEngine, loading_status  # noqa: F401  (re-export)
+from transcribe_app.engine_protocol import EngineManagerProtocol
 from transcribe_app.i18n import t
 
 
@@ -68,7 +69,7 @@ def _set_windows_priority() -> None:
 
 # ── EngineManager ──────────────────────────────────────────────────────────────
 
-class EngineManager:
+class EngineManager(EngineManagerProtocol):
     def __init__(
         self,
         on_status:   Callable[[str], None],

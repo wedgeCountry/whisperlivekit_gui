@@ -1,0 +1,208 @@
+"""AlternativeEngineManager — wraps SpeechToTextEngine (VAD + faster-whisper).
+
+Implements EngineManagerProtocol so the UI can use either engine backend
+interchangeably via create_engine_manager().
+
+Key differences from EngineManager (WhisperLiveKit):
+- The engine owns its own sounddevice stream; open_mic_stream() is a no-op.
+- No hot-reload: reload() stops the running session and re-creates the engine.
+- No partial/buffer transcription: on_update is called once per completed
+  segment with accumulated committed text; on_finalise fires on session end.
+- Re-transcription (whisper_asr) is not supported; always returns None.
+"""
+
+import logging
+import threading
+import time
+from queue import Empty
+from typing import Callable
+
+_log = logging.getLogger(__name__)
+
+from transcribe_app.config import GPU, LANGUAGE_OPTS, get_model_size
+from transcribe_app.engine import loading_status
+from transcribe_app.engine_protocol import EngineManagerProtocol
+from transcribe_app.i18n import t
+
+
+class AlternativeEngineManager(EngineManagerProtocol):
+    def __init__(
+        self,
+        on_status:   Callable[[str], None],
+        on_ready:    Callable[[bool], None],
+        on_update:   Callable[[str, str], None],
+        on_finalise: Callable[[str], None],
+        on_open_mic: Callable[[], None],
+    ) -> None:
+        self._on_status   = on_status
+        self._on_ready    = on_ready
+        self._on_update   = on_update
+        self._on_finalise = on_finalise
+        self._on_open_mic = on_open_mic
+
+        self._engine         = None          # SpeechToTextEngine | None
+        self._compute_device = "cuda" if GPU else "cpu"
+
+        self._session_thread: threading.Thread | None = None
+        self._poll_thread:    threading.Thread | None = None
+        self._poll_stop:      threading.Event         = threading.Event()
+        self._accumulated:    str                     = ""
+
+        # Protocol surface — mic_gain and audio_sink are not wired to the
+        # engine's internal audio path (the engine manages its own sounddevice
+        # stream), so these attributes exist for API compatibility only.
+        self.mic_gain:   float                                   = 1.0
+        self.audio_sink: "Callable[[np.ndarray], None] | None"  = None
+
+    # ── Config construction ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _make_config(lang: str, prompt: str, speed: str, compute_device: str):
+        from transcribe_app.alternative_engine import Config  # noqa: PLC0415
+        use_gpu = compute_device == "cuda" and GPU
+        return Config(
+            model_size    = get_model_size(lang, speed, use_gpu),
+            device        = "cuda" if use_gpu else "cpu",
+            compute_type  = "float16" if use_gpu else "int8",
+            language      = LANGUAGE_OPTS[lang]["lan"],
+            initial_prompt= prompt,
+            output_mode   = "queue",
+            # Slightly conservative VAD: avoids premature flushes on short pauses.
+            silence_limit    = 0.8,
+            min_buffer_chunks= 8,
+        )
+
+    # ── Model loading ─────────────────────────────────────────────────────────
+
+    def start(
+        self, lang: str, prompt: str,
+        speed: str = "normal", compute_device: str = "cuda" if GPU else "cpu",
+    ) -> None:
+        """Load the model in a background thread so the UI stays responsive."""
+        self._compute_device = compute_device
+        threading.Thread(
+            target=self._load_engine,
+            args=(lang, prompt, speed, compute_device),
+            daemon=True,
+        ).start()
+
+    def _load_engine(self, lang: str, prompt: str, speed: str, compute_device: str) -> None:
+        from transcribe_app.alternative_engine import SpeechToTextEngine  # noqa: PLC0415
+        use_gpu    = compute_device == "cuda" and GPU
+        model_size = get_model_size(lang, speed, use_gpu)
+        self._on_status(loading_status(model_size, lang, use_gpu))
+        try:
+            self._engine = SpeechToTextEngine(self._make_config(lang, prompt, speed, compute_device))
+            self._on_status(t("status.ready", lang=lang))
+            self._on_ready(True)
+        except Exception as exc:
+            _log.error("Failed to load SpeechToTextEngine", exc_info=True)
+            self._on_status(t("status.error", exc=exc))
+            self._on_ready(False)
+
+    def reload(
+        self, lang: str, prompt: str,
+        speed: str = "normal", compute_device: str | None = None,
+    ) -> None:
+        """Stop the current session and reload with new settings."""
+        self._compute_device = compute_device or self._compute_device
+        self._on_ready(False)
+        self.stop_session()
+        # Drain threads in the background, then load the new engine.
+        threading.Thread(
+            target=self._reload_after_stop,
+            args=(lang, prompt, speed, self._compute_device),
+            daemon=True,
+        ).start()
+
+    def _reload_after_stop(self, lang: str, prompt: str, speed: str, compute_device: str) -> None:
+        """Join session and poll threads, then load the new engine."""
+        if self._session_thread is not None:
+            self._session_thread.join(timeout=3.0)
+        if self._poll_thread is not None:
+            self._poll_thread.join(timeout=2.0)
+        self._load_engine(lang, prompt, speed, compute_device)
+
+    # ── Session ───────────────────────────────────────────────────────────────
+
+    def start_session(self) -> None:
+        """Start the engine's own sounddevice stream and begin polling results."""
+        if self._engine is None:
+            return
+
+        self._accumulated = ""
+        self._poll_stop.clear()
+        self._reset_engine_state()
+
+        self._session_thread = threading.Thread(target=self._run_session, daemon=True)
+        self._poll_thread    = threading.Thread(target=self._poll_results, daemon=True)
+        self._session_thread.start()
+        self._poll_thread.start()
+
+        # Signal the UI to transition to "recording" state.  open_mic_stream()
+        # is a no-op for this backend — the engine opens its own stream in run().
+        self._on_open_mic()
+
+    def _reset_engine_state(self) -> None:
+        """Prepare the engine for a fresh session without reloading the model."""
+        e = self._engine
+        e.stop_event.clear()
+        e.buffer.clear()
+        e.last_voice = time.time()
+        e.session_id = 0
+        # Drain stale audio and result queues from the previous session.
+        for q in (e.audio_q, e.result_queue):
+            while True:
+                try:
+                    q.get_nowait()
+                except Exception:
+                    break
+
+    def _run_session(self) -> None:
+        try:
+            self._engine.run()
+        except Exception:
+            _log.error("SpeechToTextEngine.run() raised", exc_info=True)
+
+    def _poll_results(self) -> None:
+        """Forward completed segments to on_update; call on_finalise on exit."""
+        while not self._poll_stop.is_set():
+            try:
+                text = self._engine.result_queue.get(timeout=0.2)
+                self._accumulated = f"{self._accumulated} {text}".strip()
+                self._on_update(self._accumulated, "")
+            except Empty:
+                continue
+
+        # Drain segments that arrived between stop_session() and poll exit.
+        while True:
+            try:
+                text = self._engine.result_queue.get_nowait()
+                self._accumulated = f"{self._accumulated} {text}".strip()
+            except Empty:
+                break
+
+        self._on_finalise(self._accumulated)
+
+    def stop_session(self) -> None:
+        if self._engine is not None:
+            self._engine.stop_event.set()
+        self._poll_stop.set()
+
+    # ── Audio stream (no-op) ──────────────────────────────────────────────────
+
+    def open_mic_stream(self, device: int | None = None) -> None:
+        """No-op: SpeechToTextEngine opens its own sounddevice stream in run()."""
+
+    # ── Properties ───────────────────────────────────────────────────────────
+
+    @property
+    def whisper_asr(self) -> None:
+        """Post-session re-transcription is not supported by this backend."""
+        return None
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+
+    def shutdown(self) -> None:
+        self.stop_session()
+        self._engine = None

@@ -36,7 +36,7 @@ _RETRANSCRIBE_TIMEOUT_S = 120   # max seconds to wait for re-transcription befor
 
 from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
 from ..engine import loading_status
-from ..engine_manager import EngineManager
+from ..engine_protocol import EngineManagerProtocol, create_engine_manager
 from ..i18n import set_language, t
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
@@ -76,15 +76,7 @@ class TranscriptionApp:
         self._engine_ready:   bool          = False  # True once on_ready(True) arrives; False during reload
         self._session_draining: bool        = False  # True between stop_session() and _postprocess() completing
 
-        self._mgr = EngineManager(
-            on_status=lambda msg: self._ui_queue.put(("status", msg)),
-            on_ready=lambda ok: self._ui_queue.put(("enable_controls", ok)),
-            on_update=lambda c, b: self._ui_queue.put(("update", c, b)),
-            on_finalise=lambda c: self._ui_queue.put(("finalise", c)),
-            on_open_mic=lambda: self.root.after(
-                0, lambda: self._mgr.open_mic_stream(self._settings.input_device)
-            ),
-        )
+        self._mgr: EngineManagerProtocol = self._make_manager()
 
         apply_ttk_style(root)
         self._build_ui()
@@ -96,6 +88,37 @@ class TranscriptionApp:
         )
         self._poll_ui()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ── Engine manager factory ─────────────────────────────────────────────────
+
+    def _make_manager(self) -> EngineManagerProtocol:
+        """Create the engine manager for the current settings.engine_type."""
+        return create_engine_manager(
+            self._settings.engine_type,
+            on_status=lambda msg: self._ui_queue.put(("status", msg)),
+            on_ready=lambda ok: self._ui_queue.put(("enable_controls", ok)),
+            on_update=lambda c, b: self._ui_queue.put(("update", c, b)),
+            on_finalise=lambda c: self._ui_queue.put(("finalise", c)),
+            # on_open_mic references self._mgr by name so that after _recreate_manager
+            # replaces self._mgr, the new manager's open_mic_stream is called.
+            on_open_mic=lambda: self.root.after(
+                0, lambda: self._mgr.open_mic_stream(self._settings.input_device)
+            ),
+        )
+
+    def _recreate_manager(self) -> None:
+        """Shut down the current manager and replace it with a fresh one."""
+        self._mgr.shutdown()
+        self._engine_ready = False
+        self._record_btn.config(state=tk.DISABLED)
+        self._mgr = self._make_manager()
+        self._mgr.mic_gain = self._settings.mic_gain
+        self._mgr.start(
+            self._settings.language,
+            self._settings.prompts[self._settings.language],
+            self._settings.model_speed,
+            self._settings.compute_device,
+        )
 
     # ── UI construction ────────────────────────────────────────────────────────
 
@@ -762,11 +785,12 @@ class TranscriptionApp:
         from .dialogs.settings_dialog import SettingsDialog
 
         def on_save(new: Settings) -> None:
-            old_lang    = self._settings.language
-            old_prompt  = self._settings.prompts[old_lang]
-            old_speed   = self._settings.model_speed
-            old_ui_lang = self._settings.ui_language
-            old_device  = self._settings.compute_device
+            old_lang        = self._settings.language
+            old_prompt      = self._settings.prompts[old_lang]
+            old_speed       = self._settings.model_speed
+            old_ui_lang     = self._settings.ui_language
+            old_device      = self._settings.compute_device
+            old_engine_type = self._settings.engine_type
             self._settings = new
             settings_io.save(self._settings)
             self._lang_var.set(new.language)
@@ -774,7 +798,10 @@ class TranscriptionApp:
             if new.ui_language != old_ui_lang:
                 set_language(new.ui_language)
                 self._apply_ui_lang()
-            if (
+            if new.engine_type != old_engine_type:
+                # Engine backend changed — tear down and rebuild from scratch.
+                self._recreate_manager()
+            elif (
                 new.language != old_lang
                 or new.prompts[new.language] != old_prompt
                 or new.model_speed != old_speed
