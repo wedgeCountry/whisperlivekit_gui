@@ -37,6 +37,7 @@ class SessionFileManager:
 
     def __init__(self, wav_dir: Path, diff_dir: Path) -> None:
         wav_dir.mkdir(parents=True, exist_ok=True)
+        diff_dir.mkdir(parents=True, exist_ok=True)
         self._wav_dir    = wav_dir
         self._diff_dir   = diff_dir
         self._session_id = uuid.uuid4().hex[:12]

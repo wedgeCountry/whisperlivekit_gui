@@ -16,14 +16,21 @@ Not responsible for
 import concurrent.futures
 import difflib
 import logging
+import os.path
 import queue
 import sys
 import threading
 import time
 import tkinter as tk
+import traceback
 from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
+
+import numpy as np
+from scipy.io import wavfile
+from ..alternative_engine import Config, SpeechToTextEngine, LANGUAGE_TRANSLATION
+from ..session_file_manager import SessionFileManager
 
 _log = logging.getLogger(__name__)
 
@@ -32,9 +39,15 @@ _SESSIONS_DIR = (
     if sys.platform == "win32"
     else Path.home() / ".config" / "transcribe_app" / "sessions"
 )
+
+_TRANSCRIPTION_DIFF_DIR = (
+    Path.home() / "AppData" / "Roaming" / "transcribe_app" / "diff"
+    if sys.platform == "win32"
+    else Path.home() / ".config" / "transcribe_app" / "diff"
+)
 _RETRANSCRIBE_TIMEOUT_S = 120   # max seconds to wait for re-transcription before giving up
 
-from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS
+from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS, GPU, SAMPLE_RATE, DTYPE
 from ..engine import loading_status
 from ..engine_protocol import EngineManagerProtocol, create_engine_manager
 from ..i18n import set_language, t
@@ -47,6 +60,21 @@ from .theme import (
     F_MONO, F_SMALL, apply_ttk_style, hoverable, make_btn,
 )
 
+
+def load_wav_as_array(wav_filename: str) -> tuple[int, np.ndarray]:
+    """
+    Load a WAV file and return its sample rate and audio data as a NumPy array.
+
+    Args:
+        wav_filename: Name of the WAV file to load
+
+    Returns:
+        Tuple of (sample_rate, audio_array)
+    """
+
+    # sample rate is determined automatically!
+    sample_rate, audio_array = wavfile.read(wav_filename)
+    return sample_rate, audio_array
 
 class TranscriptionApp:
     def __init__(self, root: tk.Tk) -> None:
@@ -378,7 +406,7 @@ class TranscriptionApp:
         # Start audio capture for post-recording re-transcription (if enabled).
         if self._settings.asr_postprocess:
             from transcribe_app.session_file_manager import SessionFileManager  # noqa: PLC0415
-            self._session_mgr    = SessionFileManager(wav_dir=_SESSIONS_DIR, diff_dir=Path.cwd())
+            self._session_mgr    = SessionFileManager(wav_dir=_SESSIONS_DIR, diff_dir=_TRANSCRIPTION_DIFF_DIR)
             self._mgr.audio_sink = self._session_mgr.write_chunk
 
         self._clear_btn.config(state=tk.DISABLED)
@@ -539,19 +567,17 @@ class TranscriptionApp:
 
         # Launch background re-transcription if audio was captured.
         session_mgr = self._session_mgr
-        asr = self._mgr.whisper_asr if (session_mgr and session_mgr.wav_paths) else None
         retranscribed = ""
 
         # Only proceed when the backend is faster-whisper — other backends (e.g.
         # SimulStreamingASR) expose a different .transcribe() signature and do not
         # have a file-based WhisperModel underneath.
-        if asr is not None and hasattr(asr, "model") and hasattr(asr.model, "transcribe"):
+        if session_mgr and session_mgr.wav_paths:
             self._retranscribing = True
             self._status_var.set(t("status.retranscribing"))
-            lang_prompt = self._settings.prompts[self._settings.language]
 
-            retranscribed = self._do_retranscribe(asr, session_mgr, lang_prompt, new_text)
-            new_text = retranscribed
+            retranscribed = self._do_retranscribe(session_mgr, new_text)
+            # TODO: Check the diff: new_text = retranscribed
 
         if self._session_mgr:
             self._session_mgr.cleanup()
@@ -607,33 +633,45 @@ class TranscriptionApp:
             session_mgr, prefix, retranscribed, suffix
         ))
 
-    def _do_retranscribe(self, asr, session_mgr, prompt: str, live_text: str) -> str:
+    def _do_retranscribe(self, session_mgr: SessionFileManager, live_text: str) -> str:
         """Executor task: transcribe WAV files via faster-whisper, write diff.
 
         Calls asr.model.transcribe() (faster_whisper.WhisperModel) directly so
         the file path is passed as-is — no manual WAV loading needed — and we
         are not subject to backend-specific wrapper signatures.
         """
-        lang = getattr(asr, "original_language", None)
+        prompt = self._settings.prompts[self._settings.language]
 
-        parts: list[str] = []
+        use_gpu = self._settings.compute_device == "cuda" and GPU
+        asr_cfg = Config(
+            model_size=get_model_size(self._settings.language, self._settings.model_speed, use_gpu),
+            device="cpu" if not use_gpu else "cuda",
+            language=LANGUAGE_TRANSLATION.get(self._settings.language, "auto"),
+            initial_prompt=prompt,
+            output_mode="queue",
+            sample_rate=SAMPLE_RATE
+        )
+
+        engine = SpeechToTextEngine(asr_cfg)
+
+        parts: list[np.ndarray] = []
         for wav_path in session_mgr.wav_paths:
             if not wav_path.exists():
                 _log.warning("Re-transcription: WAV file missing: %s", wav_path)
                 continue
-            segments, _ = asr.model.transcribe(
-                str(wav_path),
-                language=lang,
-                initial_prompt=prompt if prompt.strip() else None,
-                beam_size=5,
-                condition_on_previous_text=True,
-                vad_filter=True,
-            )
-            text = "".join(seg.text for seg in segments).strip()
-            if text:
-                parts.append(text)
+            sr, chunk = load_wav_as_array(wav_filename=os.path.join(session_mgr._wav_dir, wav_path.name))
+            if sr != SAMPLE_RATE:
+                _log.warning("Re-transcription: unexpected sample rate %d in %s (expected %d)", sr, wav_path.name, SAMPLE_RATE)
+            parts.append(chunk)
 
-        retranscribed = " ".join(parts).strip()
+        # normalize audio so that it can be read by whisper
+        audio: np.ndarray = np.concatenate(parts).astype(np.float32) / 32768.0
+
+        try:
+            retranscribed = engine.transcribe_internal(audio)
+        except Exception as e:
+            _log.error(str(e) + "\n" + "\n".join(traceback.format_exception(*sys.exc_info())))
+            return live_text
 
         sid = session_mgr.session_id
         diff_lines = list(difflib.unified_diff(
@@ -642,7 +680,7 @@ class TranscriptionApp:
             fromfile=f"{sid}_live",
             tofile=f"{sid}_retranscribed",
         ))
-        session_mgr.diff_path.write_text("".join(diff_lines), encoding="utf-8")
+        session_mgr.diff_path.write_text("\n".join(diff_lines), encoding="utf-8")
         _log.info("Re-transcription diff written to %s", session_mgr.diff_path)
 
         return retranscribed

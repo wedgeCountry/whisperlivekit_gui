@@ -12,6 +12,11 @@ import webrtcvad
 from faster_whisper import WhisperModel
 
 
+LANGUAGE_TRANSLATION = {
+    "Deutsch": "de",
+    "English": "en"
+}
+
 # -----------------------------
 # CONFIG
 # -----------------------------
@@ -165,24 +170,26 @@ class SpeechToTextEngine:
     # -------------------------
     # ASYNC TRANSCRIPTION
     # -------------------------
+
+    def transcribe_internal(self, audio):
+        language = None if self.cfg.language == "auto" else self.cfg.language
+        initial_prompt = self.cfg.initial_prompt or None
+        segments, _ = self.model.transcribe(
+            audio,
+            vad_filter=False,
+            initial_prompt=initial_prompt,
+            log_prob_threshold=-1.0,
+            language=language,
+        )
+        return " ".join(s.text.strip() for s in segments)
+
+
     async def transcribe(self, audio: np.ndarray, sid: int):
         log.info(f"transcribing session {sid}")
 
         audio = audio.astype(np.float32) / 32768.0
-        language = None if self.cfg.language == "auto" else self.cfg.language
-        initial_prompt = self.cfg.initial_prompt or None
 
-        def _run():
-            segments, _ = self.model.transcribe(
-                audio,
-                vad_filter=False,
-                initial_prompt=initial_prompt,
-                log_prob_threshold=-1.0,
-                language=language,
-            )
-            return " ".join(s.text.strip() for s in segments)
-
-        text = await asyncio.to_thread(_run)
+        text = await asyncio.to_thread(self.transcribe_internal, [audio])
 
         if text.strip():
             log.info(f"session {sid}: {text[:80]}")
