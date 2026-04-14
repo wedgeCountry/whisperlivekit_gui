@@ -189,7 +189,7 @@ class SpeechToTextEngine:
 
         audio = audio.astype(np.float32) / 32768.0
 
-        text = await asyncio.to_thread(self.transcribe_internal, [audio])
+        text = self.transcribe_internal(audio)
 
         if text.strip():
             log.info(f"session {sid}: {text[:80]}")
