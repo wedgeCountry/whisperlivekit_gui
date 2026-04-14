@@ -118,7 +118,12 @@ class EngineManager:
         self._recording: bool          = False
         self._lang:      str           = ""
         self._use_gpu:   bool          = GPU   # updated by start()/reload()
+        # mic_gain is written by the UI thread and read by the sounddevice callback
+        # thread.  CPython's GIL makes float reads/writes atomic in practice, but
+        # treat it as a best-effort control knob, not a hard synchronisation point.
         self.mic_gain:   float         = 1.0   # linear amplitude multiplier; set by UI
+
+        self._started:   bool          = False  # guards against start() re-entry
 
         # Load-cancellation state.
         #
@@ -148,14 +153,20 @@ class EngineManager:
         self._session_task: asyncio.Task | None  = None
 
         # Optional audio capture hook.  Set to a callable before open_mic_stream();
-        # it receives each int16 ndarray chunk (gain-applied, no peak normalization)
-        # from the sounddevice callback thread.  Set to None to disable.
+        # it receives the same processed int16 ndarray chunk (fixed-normalised,
+        # gain-applied) that was sent to the transcription engine, so re-transcription
+        # sees identical input to the live session.  Set to None to disable.
         self.audio_sink: "Callable[[np.ndarray], None] | None" = None
 
     # ── Startup ───────────────────────────────────────────────────────────────
 
     def start(self, lang: str, prompt: str, speed: str = "normal", compute_device: str = "cuda" if GPU else "cpu") -> None:
-        """Spin up the background asyncio thread and load the initial model."""
+        """Spin up the background asyncio thread and load the initial model.
+        Must be called at most once per instance."""
+        if self._started:
+            _log.warning("start() called more than once — ignored")
+            return
+        self._started = True
         self._use_gpu = (compute_device == "cuda") and GPU
 
         def _run() -> None:
@@ -216,8 +227,13 @@ class EngineManager:
 
                 self._loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self._loop)
-                self._loop.run_until_complete(self._load_engine(lang, prompt, speed))
-                socket.setdefaulttimeout(None)  # restore: don't affect audio streaming
+                try:
+                    self._loop.run_until_complete(self._load_engine(lang, prompt, speed))
+                finally:
+                    # Restore regardless of success or failure so a download
+                    # error doesn't leave a 60 s timeout on every socket for
+                    # the rest of the process lifetime.
+                    socket.setdefaulttimeout(None)
                 self._loop.run_forever()
             except Exception as exc:  # noqa: BLE001
                 # Surface any unhandled error instead of silently killing the thread
@@ -490,24 +506,20 @@ class EngineManager:
                 self._on_finalise(final_text)
 
         finally:
-            try:
-                await processor.process_audio(b"")
-            except Exception:
-                pass
-            try:
-                await results_gen.aclose()
-            except Exception:
-                pass
-            try:
-                await processor.process_audio(b"")
-                await processor.cleanup()
-            except Exception:
-                pass
+            # stop_session() sends None to process_audio to flush the processor;
+            # here we just close the generator and release processor resources.
+            for coro in (results_gen.aclose(), processor.cleanup()):
+                try:
+                    await coro
+                except Exception:
+                    pass
 
     def open_mic_stream(self, device: int | None = None) -> None:
         """Open the sounddevice InputStream. Must be called from the UI thread
         (scheduled via root.after) so that self._stream is only ever touched on
         the UI thread, matching stop_session()."""
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("open_mic_stream must be called from the UI (main) thread")
         import sounddevice as sd  # noqa: PLC0415
 
         blocksize = int(SAMPLE_RATE * CHUNK_SECONDS)
@@ -517,27 +529,24 @@ class EngineManager:
         def _callback(indata: np.ndarray, frames: int, time_info, status) -> None:
             if not self._recording:
                 return
-            samples = indata.astype(np.float32)
-            peak = np.max(np.abs(samples))
-            if peak > 0:
-                samples /= peak
-            gain = self.mic_gain
+            # Normalise to [-1, 1] using a fixed divisor so that relative
+            # amplitudes between frames are preserved for VAD and the encoder.
+            # Per-chunk peak division was acting as aggressive AGC — every
+            # quiet noise frame got amplified to full scale, causing false VAD
+            # triggers and making mic_gain irrelevant.
+            samples = indata.astype(np.float32) / 32768.0
+            gain = self.mic_gain  # float; atomic read under CPython GIL
             if gain != 1.0:
-                samples *= gain
-            audio = (samples * 32767).clip(-32768, 32767).astype("int16")
+                samples = (samples * gain).clip(-1.0, 1.0)
+            audio = (samples * 32767).astype("int16")
             asyncio.run_coroutine_threadsafe(
                 processor.process_audio(audio.tobytes()), loop
             )
-            # Audio capture for post-recording re-transcription.
-            # indata is already int16 (DTYPE="int16"), so just apply gain and clip —
-            # no further scaling needed.
+            # Send the same processed audio to the capture sink so that
+            # re-transcription sees identical input to the live session.
             sink = self.audio_sink
             if sink is not None:
-                if gain != 1.0:
-                    captured = (indata.astype(np.float32) * gain).clip(-32768, 32767).astype("int16")
-                else:
-                    captured = indata.copy()
-                sink(captured)
+                sink(audio)
 
         stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
@@ -599,4 +608,9 @@ class EngineManager:
             except Exception:
                 pass
         if self._loop is not None and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
+            def _cancel_and_stop() -> None:
+                for task in (self._session_task, self._load_task):
+                    if task is not None and not task.done():
+                        task.cancel()
+                self._loop.stop()  # type: ignore[union-attr]
+            self._loop.call_soon_threadsafe(_cancel_and_stop)
