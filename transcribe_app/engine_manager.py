@@ -223,15 +223,30 @@ class EngineManager(EngineManagerProtocol):
 
         return _callback
 
-    def open_mic_stream(self, device: int | None = None) -> None:
+    def open_mic_stream(
+        self,
+        device: int | None = None,
+        stream_factory=None,
+    ) -> None:
         """Open the sounddevice InputStream. Must be called from the UI thread
         (scheduled via root.after) so that self._stream is only ever touched on
-        the UI thread, matching stop_session()."""
+        the UI thread, matching stop_session().
+
+        Parameters
+        ----------
+        device:
+            sounddevice device index, or None for the system default.
+        stream_factory:
+            Optional callable with the same signature as ``sd.InputStream``.
+            Defaults to ``sounddevice.InputStream``.  Tests supply a fake here
+            to avoid opening real audio hardware.
+        """
         if threading.current_thread() is not threading.main_thread():
             raise RuntimeError("open_mic_stream must be called from the UI (main) thread")
         import sounddevice as sd  # noqa: PLC0415
 
-        stream = sd.InputStream(
+        factory = stream_factory if stream_factory is not None else sd.InputStream
+        stream = factory(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
             blocksize=int(SAMPLE_RATE * CHUNK_SECONDS),
             callback=self._make_audio_callback(self._async_engine.processor, self._loop),  # type: ignore[arg-type]

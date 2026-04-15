@@ -47,13 +47,13 @@ def _fill_prompts(raw: object) -> dict[str, str]:
     return {k: str(base.get(k, DEFAULT_PROMPTS[k])) for k in LANGUAGE_OPTS}
 
 
-def load() -> Settings:
+def load(path: Path = _SETTINGS_FILE) -> Settings:
     try:
-        data = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return Settings()  # expected on first run
     except Exception:
-        _log.warning("Could not load settings from %s — using defaults", _SETTINGS_FILE, exc_info=True)
+        _log.warning("Could not load settings from %s — using defaults", path, exc_info=True)
         return Settings()
 
     lang = data.get("language", DEFAULT_LANGUAGE)
@@ -93,10 +93,10 @@ def load() -> Settings:
     )
 
 
-def save(s: Settings) -> None:
+def save(s: Settings, path: Path = _SETTINGS_FILE) -> None:
     try:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        _SETTINGS_FILE.write_text(
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
             json.dumps(
                 {
                     "language":           s.language,
@@ -114,4 +114,4 @@ def save(s: Settings) -> None:
             encoding="utf-8",
         )
     except Exception:
-        _log.error("Failed to save settings to %s", _SETTINGS_FILE, exc_info=True)
+        _log.error("Failed to save settings to %s", path, exc_info=True)

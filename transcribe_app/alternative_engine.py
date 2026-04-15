@@ -68,16 +68,16 @@ log = logging.getLogger("asr")
 # ENGINE
 # -----------------------------
 class SpeechToTextEngine:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, *, model=None, vad=None):
         self.cfg = cfg
 
         self.frame_size = int(cfg.sample_rate * cfg.frame_ms / 1000)
 
-        self.vad = webrtcvad.Vad(cfg.vad_aggressiveness)
-        self.model = WhisperModel(
+        self.vad = vad if vad is not None else webrtcvad.Vad(cfg.vad_aggressiveness)
+        self.model = model if model is not None else WhisperModel(
             cfg.model_size,
             device=cfg.device,
-            compute_type=cfg.compute_type
+            compute_type=cfg.compute_type,
         )
 
         # thread-safe audio queue (callback → worker)
@@ -98,6 +98,22 @@ class SpeechToTextEngine:
 
         self.stop_event = Event()
         self.loop = asyncio.new_event_loop()
+
+    # -------------------------
+    # RESET
+    # -------------------------
+    def reset(self) -> None:
+        """Prepare the engine for a fresh session without reloading the model."""
+        self.stop_event.clear()
+        self.buffer.clear()
+        self.last_voice = time.time()
+        self.session_id = 0
+        for q in (self.audio_q, self.result_queue):
+            while True:
+                try:
+                    q.get_nowait()
+                except Empty:
+                    break
 
     # -------------------------
     # CALLBACK (ZERO LOGIC)
@@ -224,23 +240,21 @@ class SpeechToTextEngine:
         self.loop.run_forever()
 
     # -------------------------
-    # RUN
+    # RUN (internal, no I/O)
     # -------------------------
-    def run(self):
+    def run_with_stream(self, stream_cm) -> None:
+        """Run the engine using an already-opened audio stream context manager.
+
+        Separated from ``run()`` so tests can supply a fake stream without
+        touching sounddevice at all.
+        """
         log.info("starting engine")
 
         loop_thread = Thread(target=self.start_loop, daemon=True)
         loop_thread.start()
         Thread(target=self.worker, daemon=True).start()
 
-        with sd.InputStream(
-            samplerate=self.cfg.sample_rate,
-            channels=1,
-            dtype="float32",
-            blocksize=self.frame_size,
-            latency="high",
-            callback=self.audio_callback,
-        ):
+        with stream_cm:
             try:
                 while not self.stop_event.is_set():
                     sd.sleep(500)
@@ -251,6 +265,20 @@ class SpeechToTextEngine:
                 self.loop.call_soon_threadsafe(self.loop.stop)
                 loop_thread.join(timeout=5)
                 log.info("engine stopped")
+
+    # -------------------------
+    # RUN
+    # -------------------------
+    def run(self):
+        stream_cm = sd.InputStream(
+            samplerate=self.cfg.sample_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=self.frame_size,
+            latency="high",
+            callback=self.audio_callback,
+        )
+        self.run_with_stream(stream_cm)
 
 
 if __name__ == "__main__":

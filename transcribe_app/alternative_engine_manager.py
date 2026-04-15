@@ -13,7 +13,6 @@ Key differences from EngineManager (WhisperLiveKit):
 
 import logging
 import threading
-import time
 from queue import Empty
 from typing import Callable
 
@@ -28,17 +27,19 @@ from transcribe_app.i18n import t
 class AlternativeEngineManager(EngineManagerProtocol):
     def __init__(
         self,
-        on_status:   Callable[[str], None],
-        on_ready:    Callable[[bool], None],
-        on_update:   Callable[[str, str], None],
-        on_finalise: Callable[[str], None],
-        on_open_mic: Callable[[], None],
+        on_status:      Callable[[str], None],
+        on_ready:       Callable[[bool], None],
+        on_update:      Callable[[str, str], None],
+        on_finalise:    Callable[[str], None],
+        on_open_mic:    Callable[[], None],
+        engine_factory: "Callable | None" = None,
     ) -> None:
         self._on_status   = on_status
         self._on_ready    = on_ready
         self._on_update   = on_update
         self._on_finalise = on_finalise
         self._on_open_mic = on_open_mic
+        self._engine_factory = engine_factory  # None → import SpeechToTextEngine lazily
 
         self._engine         = None          # SpeechToTextEngine | None
         self._compute_device = "cuda" if GPU else "cpu"
@@ -87,12 +88,16 @@ class AlternativeEngineManager(EngineManagerProtocol):
         ).start()
 
     def _load_engine(self, lang: str, prompt: str, speed: str, compute_device: str) -> None:
-        from transcribe_app.alternative_engine import SpeechToTextEngine  # noqa: PLC0415
+        if self._engine_factory is None:
+            from transcribe_app.alternative_engine import SpeechToTextEngine  # noqa: PLC0415
+            factory = SpeechToTextEngine
+        else:
+            factory = self._engine_factory
         use_gpu    = compute_device == "cuda" and GPU
         model_size = get_model_size(lang, speed, use_gpu)
         self._on_status(loading_status(model_size, lang, use_gpu))
         try:
-            self._engine = SpeechToTextEngine(self._make_config(lang, prompt, speed, compute_device))
+            self._engine = factory(self._make_config(lang, prompt, speed, compute_device))
             self._on_status(t("status.ready", lang=lang))
             self._on_ready(True)
         except Exception as exc:
@@ -132,7 +137,7 @@ class AlternativeEngineManager(EngineManagerProtocol):
 
         self._accumulated = ""
         self._poll_stop.clear()
-        self._reset_engine_state()
+        self._engine.reset()
 
         self._session_thread = threading.Thread(target=self._run_session, daemon=True)
         self._poll_thread    = threading.Thread(target=self._poll_results, daemon=True)
@@ -142,21 +147,6 @@ class AlternativeEngineManager(EngineManagerProtocol):
         # Signal the UI to transition to "recording" state.  open_mic_stream()
         # is a no-op for this backend — the engine opens its own stream in run().
         self._on_open_mic()
-
-    def _reset_engine_state(self) -> None:
-        """Prepare the engine for a fresh session without reloading the model."""
-        e = self._engine
-        e.stop_event.clear()
-        e.buffer.clear()
-        e.last_voice = time.time()
-        e.session_id = 0
-        # Drain stale audio and result queues from the previous session.
-        for q in (e.audio_q, e.result_queue):
-            while True:
-                try:
-                    q.get_nowait()
-                except Exception:
-                    break
 
     def _run_session(self) -> None:
         try:
