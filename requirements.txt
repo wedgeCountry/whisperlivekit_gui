@@ -7,4 +7,4 @@ sounddevice
 language_tool_python
 pyinstaller
 pytest
-webrtcvad
+webrtcvad # needs Microsoft Visual C++ 14.0 or greater to build on windows https://visualstudio.microsoft.com/de/visual-cpp-build-tools/

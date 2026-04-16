@@ -150,7 +150,7 @@ transcribe_app/
         └── settings_dialog.py    # Settings dialog
 ```
 
-## Architecture Notes
+## Building a standalone executable
 
 - **Thread model**: Tkinter runs on the main thread. A daemon thread hosts an `asyncio` event loop that owns the engine and model. Audio is captured by a `sounddevice` callback and fed to the engine via `asyncio.run_coroutine_threadsafe`. Results are returned to Tkinter through a `queue.Queue` polled every 50 ms via `root.after`.
 - **Lazy imports**: `sounddevice`, `AudioProcessor`, and engine classes are imported inside the background thread to avoid PortAudio / CUDA hangs at window open.
@@ -164,7 +164,7 @@ transcribe_app/
 > Whisper models are **not** bundled — they are downloaded to
 > `~/.cache/huggingface/hub/` on first launch.
 
-### Prerequisites
+### Prerequisites (both platforms)
 
 ```bash
 pip install pyinstaller
@@ -174,18 +174,31 @@ pip install pyinstaller
 
 ```bash
 pyinstaller transcribe_app_linux.spec
+```
+
+The binary is written to `dist/transcribe_app`. Make it executable and run:
+
+```bash
 chmod +x dist/transcribe_app
 ./dist/transcribe_app
 ```
 
-**Runtime dependencies on the target machine:**
+**Runtime dependencies on the target Linux machine:**
 
+
+| Dependency                            | Install                                          |
+| ------------------------------------- | ------------------------------------------------ |
+| PortAudio (for sounddevice)           | `sudo apt install libportaudio2`                 |
+| Java 8+ (for LanguageTool, optional)  | `sudo apt install default-jre`                   |
 | Dependency | Install |
 |---|---|
 | PortAudio | `sudo apt install libportaudio2` |
 | Java 8+ (for LanguageTool, optional) | `sudo apt install default-jre` |
 
 ### Windows
+
+Run the following in a Command Prompt or PowerShell **on a Windows machine**
+(or in a Windows GitHub Actions runner — see CI section below):
 
 ```bat
 pyinstaller transcribe_app_windows.spec
