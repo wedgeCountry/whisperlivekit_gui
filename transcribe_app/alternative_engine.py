@@ -101,7 +101,8 @@ class SpeechToTextEngine:
         self.last_voice = time.time()
         self.session_id = 0
 
-        self.stop_event = Event()
+        self.stop_event  = Event()
+        self.flush_done  = Event()  # set by worker after its final flush at stop time
         self.loop = asyncio.new_event_loop()
 
     # -------------------------
@@ -110,6 +111,7 @@ class SpeechToTextEngine:
     def reset(self) -> None:
         """Prepare the engine for a fresh session without reloading the model."""
         self.stop_event.clear()
+        self.flush_done.clear()
         self.buffer.clear()
         self.last_voice = time.time()
         self.session_id = 0
@@ -163,6 +165,26 @@ class SpeechToTextEngine:
             # silence detection
             if self.buffer and (now - self.last_voice > self.cfg.silence_limit):
                 self.flush()
+
+        # Final flush: transcribe any buffered speech at stop time.
+        # Run synchronously — the asyncio event loop may be shutting down
+        # simultaneously, so we cannot use run_coroutine_threadsafe here.
+        if self.buffer:
+            audio = np.concatenate(self.buffer)
+            self.buffer.clear()
+            max_samples = int(self.cfg.max_buffer_seconds * self.cfg.sample_rate)
+            if len(audio) > max_samples:
+                audio = audio[-max_samples:]
+            sid = self.session_id
+            self.session_id += 1
+            self._save_wav(audio, sid)
+            try:
+                text = self.transcribe_internal(audio.astype(np.float32) / 32768.0)
+                if text.strip():
+                    self._emit(text)
+            except Exception:
+                log.warning("Final flush transcription failed", exc_info=True)
+        self.flush_done.set()
 
     # -------------------------
     # WAV SNIPPET SAVE

@@ -173,7 +173,13 @@ class AlternativeEngineManager(EngineManagerProtocol):
             except Empty:
                 continue
 
-        # Drain segments that arrived between stop_session() and poll exit.
+        # Wait for the worker to finish its final synchronous flush so that the
+        # last spoken segment (still in the buffer when Stop was pressed) is
+        # in result_queue before we drain it below.
+        if self._engine is not None:
+            self._engine.flush_done.wait(timeout=60)
+
+        # Drain all segments produced by the final flush (and any in-flight ones).
         while True:
             try:
                 text = self._engine.result_queue.get_nowait()
