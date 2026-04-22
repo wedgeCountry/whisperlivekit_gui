@@ -245,13 +245,25 @@ class EngineManager(EngineManagerProtocol):
             raise RuntimeError("open_mic_stream must be called from the UI (main) thread")
         import sounddevice as sd  # noqa: PLC0415
 
-        factory = stream_factory if stream_factory is not None else sd.InputStream
-        stream = factory(
+        kwargs = dict(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
             blocksize=int(SAMPLE_RATE * CHUNK_SECONDS),
             callback=self._make_audio_callback(self._async_engine.processor, self._loop),  # type: ignore[arg-type]
             device=device,
         )
+        if stream_factory is not None:
+            stream = stream_factory(**kwargs)
+        elif IS_WINDOWS:
+            try:
+                stream = sd.InputStream(**kwargs, extra_settings=sd.WasapiSettings(exclusive=True))
+            except Exception:
+                _log.warning(
+                    "WASAPI exclusive mode unavailable; falling back to shared mode "
+                    "(Windows audio enhancements may affect recording quality)"
+                )
+                stream = sd.InputStream(**kwargs)
+        else:
+            stream = sd.InputStream(**kwargs)
         try:
             stream.start()
         except Exception:

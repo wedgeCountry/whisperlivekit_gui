@@ -2,7 +2,9 @@ import sys
 import time
 import logging
 import asyncio
+import wave
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Event, Thread
 from queue import Queue, Full, Empty
 
@@ -52,6 +54,9 @@ class Config:
     output_mode: str = "stream"
     output_prefix: str = "session"  # used by "file" mode
     output_stream: object = None    # used by "stream" mode; None → sys.stdout
+
+    # WAV snippet output: directory path for per-segment WAV files, or None to disable
+    wav_snippet_dir: str | None = None
 
 
 # -----------------------------
@@ -160,6 +165,25 @@ class SpeechToTextEngine:
                 self.flush()
 
     # -------------------------
+    # WAV SNIPPET SAVE
+    # -------------------------
+    def _save_wav(self, audio: np.ndarray, sid: int) -> None:
+        if not self.cfg.wav_snippet_dir:
+            return
+        out_dir = Path(self.cfg.wav_snippet_dir)
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            path = out_dir / f"snippet_{sid:04d}.wav"
+            with wave.open(str(path), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # int16 = 2 bytes/sample
+                wf.setframerate(self.cfg.sample_rate)
+                wf.writeframes(audio.tobytes())
+            log.debug("saved VAD snippet: %s", path)
+        except Exception:
+            log.warning("Failed to save VAD snippet %04d", sid, exc_info=True)
+
+    # -------------------------
     # SAFE FLUSH (worker-owned)
     # -------------------------
     def flush(self):
@@ -177,6 +201,8 @@ class SpeechToTextEngine:
 
         sid = self.session_id
         self.session_id += 1
+
+        self._save_wav(audio, sid)
 
         asyncio.run_coroutine_threadsafe(
             self.transcribe(audio, sid),
@@ -267,10 +293,17 @@ class SpeechToTextEngine:
                 log.info("engine stopped")
 
     # -------------------------
-    # RUN
+    # STREAM FACTORY
     # -------------------------
-    def run(self):
-        stream_cm = sd.InputStream(
+    def _make_stream(self) -> sd.InputStream:
+        """Open the microphone InputStream.
+
+        On Windows, tries WASAPI exclusive mode first to bypass the APO pipeline
+        (noise suppression, echo cancellation, EQ) that makes recordings sound
+        metallic.  Falls back to WASAPI shared mode if the device refuses exclusive
+        access (e.g. another app already holds it).
+        """
+        kwargs = dict(
             samplerate=self.cfg.sample_rate,
             channels=1,
             dtype="float32",
@@ -278,7 +311,21 @@ class SpeechToTextEngine:
             latency="high",
             callback=self.audio_callback,
         )
-        self.run_with_stream(stream_cm)
+        if sys.platform == "win32":
+            try:
+                return sd.InputStream(**kwargs, extra_settings=sd.WasapiSettings(exclusive=True))
+            except Exception:
+                log.warning(
+                    "WASAPI exclusive mode unavailable; falling back to shared mode "
+                    "(Windows audio enhancements may affect recording quality)"
+                )
+        return sd.InputStream(**kwargs)
+
+    # -------------------------
+    # RUN
+    # -------------------------
+    def run(self):
+        self.run_with_stream(self._make_stream())
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ from .theme import (
     C_ACCENT, C_ACCENT_H, F_SMALL, center_on_parent,
     apply_ttk_style,
 )
-from transcribe_app.config import CHANNELS, DTYPE, SAMPLE_RATE
+from transcribe_app.config import CHANNELS, DTYPE, IS_WINDOWS, SAMPLE_RATE
 from transcribe_app.i18n import t
 from transcribe_app.settings import Settings
 
@@ -199,11 +199,18 @@ class MicTestWindow:
             rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
             self._amplitude = min(rms / 32768.0 * self._settings.mic_gain, 1.0)
 
-        self._stream = sd.InputStream(
+        kwargs = dict(
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
-            blocksize=self.CHUNK, callback=_cb,
-            device=device,
+            blocksize=self.CHUNK, callback=_cb, device=device,
         )
+        if IS_WINDOWS:
+            try:
+                self._stream = sd.InputStream(**kwargs, extra_settings=sd.WasapiSettings(exclusive=True))
+                self._stream.start()
+                return
+            except Exception:
+                pass  # fall through to shared mode
+        self._stream = sd.InputStream(**kwargs)
         self._stream.start()
 
     def _stop_stream(self) -> None:
