@@ -35,6 +35,7 @@ class Settings:
     compute_device:     str            = "cuda" if GPU else "cpu"  # "cuda" or "cpu"
     asr_postprocess:    bool           = False  # re-transcribe recording after session ends
     engine_type:        str            = "whisperlive"  # "whisperlive" | "faster_whisper"
+    vad_silence_gap:    float          = 0.8    # seconds of silence before a new VAD segment is flushed (faster_whisper only)
 
 
 def _fill_prompts(raw: object) -> dict[str, str]:
@@ -80,6 +81,9 @@ def load(path: Path = _SETTINGS_FILE) -> Settings:
     raw_engine = data.get("engine_type", "whisperlive")
     engine_type = raw_engine if raw_engine in ENGINE_TYPES else "whisperlive"
 
+    raw_silence = data.get("vad_silence_gap", 0.8)
+    vad_silence_gap = float(raw_silence) if isinstance(raw_silence, (int, float)) and 0.1 <= raw_silence <= 10.0 else 0.8
+
     return Settings(
         language=lang,
         prompts=_fill_prompts(data.get("prompts")),
@@ -90,6 +94,7 @@ def load(path: Path = _SETTINGS_FILE) -> Settings:
         compute_device=compute_device,
         asr_postprocess=bool(data.get("asr_postprocess", False)),
         engine_type=engine_type,
+        vad_silence_gap=vad_silence_gap,
     )
 
 
@@ -108,6 +113,7 @@ def save(s: Settings, path: Path = _SETTINGS_FILE) -> None:
                     "compute_device":     s.compute_device,
                     "asr_postprocess":    s.asr_postprocess,
                     "engine_type":        s.engine_type,
+                    "vad_silence_gap":    s.vad_silence_gap,
                 },
                 indent=2,
             ),

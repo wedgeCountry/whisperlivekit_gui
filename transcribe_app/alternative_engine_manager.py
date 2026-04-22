@@ -60,13 +60,14 @@ class AlternativeEngineManager(EngineManagerProtocol):
         # Protocol surface — mic_gain and audio_sink are not wired to the
         # engine's internal audio path (the engine manages its own sounddevice
         # stream), so these attributes exist for API compatibility only.
-        self.mic_gain:   float                                   = 1.0
-        self.audio_sink: "Callable[[np.ndarray], None] | None"  = None
+        self.mic_gain:        float                                   = 1.0
+        self.audio_sink:      "Callable[[np.ndarray], None] | None"  = None
+        self.vad_silence_gap: float                                   = 0.8
 
     # ── Config construction ───────────────────────────────────────────────────
 
     @staticmethod
-    def _make_config(lang: str, prompt: str, speed: str, compute_device: str):
+    def _make_config(lang: str, prompt: str, speed: str, compute_device: str, silence_gap: float = 0.8):
         from transcribe_app.alternative_engine import Config  # noqa: PLC0415
         use_gpu = compute_device == "cuda" and GPU
         return Config(
@@ -76,8 +77,7 @@ class AlternativeEngineManager(EngineManagerProtocol):
             language      = LANGUAGE_OPTS[lang]["lan"],
             initial_prompt= prompt,
             output_mode   = "queue",
-            # Slightly conservative VAD: avoids premature flushes on short pauses.
-            silence_limit    = 0.8,
+            silence_limit    = silence_gap,
             min_buffer_chunks= 8,
             wav_snippet_dir  = str(_SNIPPET_DIR),
         )
@@ -106,7 +106,7 @@ class AlternativeEngineManager(EngineManagerProtocol):
         model_size = get_model_size(lang, speed, use_gpu)
         self._on_status(loading_status(model_size, lang, use_gpu))
         try:
-            self._engine = factory(self._make_config(lang, prompt, speed, compute_device))
+            self._engine = factory(self._make_config(lang, prompt, speed, compute_device, self.vad_silence_gap))
             self._on_status(t("status.ready", lang=lang))
             self._on_ready(True)
         except Exception as exc:

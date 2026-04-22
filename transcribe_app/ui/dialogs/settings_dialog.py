@@ -127,12 +127,27 @@ class SettingsDialog:
             font=F_LABEL,
         ).grid(row=5, column=1, sticky="w", pady=(0, 10))
 
-        # Row 6 — style prompt
+        # Row 6 — VAD silence gap
+        tk.Label(outer, text=t("dlg.settings.vad_silence"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
+            row=6, column=0, sticky="w", padx=(0, 10), pady=(0, 10)
+        )
+        self._silence_var = tk.StringVar(value=f"{self._settings.vad_silence_gap:.1f}")
+        self._silence_spin = ttk.Spinbox(
+            outer,
+            textvariable=self._silence_var,
+            from_=0.1, to=10.0, increment=0.1,
+            width=5, font=F_LABEL, format="%.1f",
+        )
+        self._silence_spin.grid(row=6, column=1, sticky="w", pady=(0, 10))
+        self._engine_var.trace_add("write", lambda *_: self._update_silence_state())
+        self._update_silence_state()
+
+        # Row 7 — style prompt
         tk.Label(outer, text=t("dlg.settings.prompt"), bg=C_BG, fg=C_MUTED, font=F_SMALL).grid(
-            row=6, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
+            row=7, column=0, sticky="nw", padx=(0, 10), pady=(0, 12)
         )
         border = tk.Frame(outer, bg=C_BORDER)
-        border.grid(row=6, column=1, sticky="ew", pady=(0, 12))
+        border.grid(row=7, column=1, sticky="ew", pady=(0, 12))
 
         self._prompt_text = tk.Text(
             border,
@@ -147,9 +162,14 @@ class SettingsDialog:
         self._lang_var.trace_add("write", self._on_lang_change)
 
         btn_row = tk.Frame(outer, bg=C_BG)
-        btn_row.grid(row=7, column=0, columnspan=2, sticky="e")
+        btn_row.grid(row=8, column=0, columnspan=2, sticky="e")
         make_btn(btn_row, t("dlg.settings.reset"), self._reset).pack(side=tk.LEFT, padx=(0, 8))
         make_btn(btn_row, t("dlg.settings.save"), self._save, primary=True).pack(side=tk.LEFT)
+
+    def _update_silence_state(self) -> None:
+        engine_key = next((k for k, v in ENGINE_LABELS.items() if v == self._engine_var.get()), "whisperlive")
+        state = "normal" if engine_key == "faster_whisper" else "disabled"
+        self._silence_spin.config(state=state)
 
     @staticmethod
     def _speed_key(label: str) -> str:
@@ -182,11 +202,16 @@ class SettingsDialog:
         compute_device = self._device_var.get()
         engine_type    = next((k for k, v in ENGINE_LABELS.items() if v == self._engine_var.get()), "whisperlive")
         new_prompts    = {**self._settings.prompts, lang: self._prompt_text.get("1.0", tk.END).strip()}
+        try:
+            silence_gap = round(max(0.1, min(10.0, float(self._silence_var.get()))), 1)
+        except ValueError:
+            silence_gap = 0.8
         self._on_save(replace(
             self._settings,
             language=lang, prompts=new_prompts, model_speed=speed,
             ui_language=ui_lang, compute_device=compute_device,
             asr_postprocess=self._asr_var.get(),
             engine_type=engine_type,
+            vad_silence_gap=silence_gap,
         ))
         self._win.destroy()

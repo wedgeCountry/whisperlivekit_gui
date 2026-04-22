@@ -105,6 +105,7 @@ class TranscriptionApp:
         self._session_draining: bool        = False  # True between stop_session() and _postprocess() completing
 
         self._mgr: EngineManagerProtocol = self._make_manager()
+        self._mgr.vad_silence_gap = self._settings.vad_silence_gap
 
         apply_ttk_style(root)
         self._build_ui()
@@ -141,6 +142,7 @@ class TranscriptionApp:
         self._record_btn.config(state=tk.DISABLED)
         self._mgr = self._make_manager()
         self._mgr.mic_gain = self._settings.mic_gain
+        self._mgr.vad_silence_gap = self._settings.vad_silence_gap
         self._mgr.start(
             self._settings.language,
             self._settings.prompts[self._settings.language],
@@ -799,6 +801,7 @@ class TranscriptionApp:
             old_ui_lang     = self._settings.ui_language
             old_device      = self._settings.compute_device
             old_engine_type = self._settings.engine_type
+            old_silence_gap = self._settings.vad_silence_gap
             self._settings = new
             settings_io.save(self._settings)
             self._lang_var.set(new.language)
@@ -814,7 +817,9 @@ class TranscriptionApp:
                 or new.prompts[new.language] != old_prompt
                 or new.model_speed != old_speed
                 or new.compute_device != old_device
+                or new.vad_silence_gap != old_silence_gap
             ):
+                self._mgr.vad_silence_gap = new.vad_silence_gap
                 self._reload_engine(new.language)
 
         dialog = SettingsDialog(self.root, self._settings, on_save)
