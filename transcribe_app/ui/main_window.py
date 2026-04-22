@@ -13,7 +13,6 @@ Not responsible for
 * Text cleaning / voice commands                      →  text_processing
 """
 
-import concurrent.futures
 import difflib
 import logging
 import os.path
@@ -22,7 +21,6 @@ import sys
 import threading
 import time
 import tkinter as tk
-import traceback
 from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
@@ -540,17 +538,18 @@ class TranscriptionApp:
         # effect automatically on the next _set_text() call.
 
     def _postprocess(self) -> None:
-        """Apply voice commands to the dictated text after recording ends.
+        """Apply voice commands to the live transcription immediately after recording ends.
 
-        Only the text added during the current recording session is processed —
-        any pre-existing content in the editor is left untouched.
+        If ASR post-processing is enabled and WAV files were captured,
+        re-transcription runs in a background thread so the UI stays responsive;
+        the record button is re-enabled straight away with the live text visible.
         """
         full = self._text.get("1.0", "end-1c")
 
         # Split off the preserved suffix (text that was after the cursor).
         if self._session_suffix and self._session_suffix in full:
-            idx  = full.rfind(self._session_suffix)
-            body = full[:idx]
+            idx    = full.rfind(self._session_suffix)
+            body   = full[:idx]
             suffix = full[idx:]
         else:
             body   = full
@@ -565,30 +564,8 @@ class TranscriptionApp:
             prefix   = ""
             new_text = body
 
-
-
-        # Launch background re-transcription if audio was captured.
-        session_mgr = self._session_mgr
-        retranscribed = ""
-
-        # Only proceed when the backend is faster-whisper — other backends (e.g.
-        # SimulStreamingASR) expose a different .transcribe() signature and do not
-        # have a file-based WhisperModel underneath.
-        if session_mgr and session_mgr.wav_paths:
-            self._retranscribing = True
-            self._status_var.set(t("status.retranscribing"))
-
-            try:
-                retranscribed = self._do_retranscribe(session_mgr, new_text)
-                new_text = retranscribed
-            except Exception as e:
-                _log.error(str(e) + "\n" + "\n".join(traceback.format_exception(*sys.exc_info())))
-                # use the live text
-
-        if self._session_mgr:
-            self._session_mgr.cleanup()
-
-        processed = apply_commands_full(clean(new_text))
+        # Apply voice commands to the live transcription immediately.
+        processed      = apply_commands_full(clean(new_text))
         new_text_final = processed if processed is not None else new_text
 
         if processed is not None:
@@ -604,6 +581,31 @@ class TranscriptionApp:
             self._text.see(tk.END)
             self._session_prefix = prefix + new_text_final
 
+        session_mgr = self._session_mgr
+
+        # If ASR post-processing is enabled and WAV files were captured, run
+        # re-transcription in a background thread so the UI stays responsive.
+        if session_mgr and session_mgr.wav_paths:
+            self._retranscribing = True
+            self._status_var.set(t("status.retranscribing"))
+
+            def _run() -> None:
+                try:
+                    result: "str | None" = self._do_retranscribe(session_mgr, new_text_final)
+                except Exception:
+                    _log.error("Re-transcription failed", exc_info=True)
+                    result = None
+                self.root.after(
+                    0, lambda: self._on_retranscribe_done(session_mgr, prefix, result, suffix)
+                )
+
+            threading.Thread(target=_run, daemon=True).start()
+            # _session_draining stays True; _on_retranscribe_done will clear it.
+            return
+
+        # No re-transcription — finalise immediately.
+        if session_mgr:
+            session_mgr.cleanup()
         self._session_mgr = None
         self._session_draining = False
         self._set_record_btn_state()
@@ -659,33 +661,39 @@ class TranscriptionApp:
 
     def _on_retranscribe_done(
         self,
-        session_mgr,
+        session_mgr: "SessionFileManager",
         prefix: str,
-        retranscribed: str,
+        retranscribed: "str | None",
         suffix: str,
     ) -> None:
-        """UI-thread callback: replace text with re-transcribed version, clean up, re-enable."""
+        """UI-thread callback: update text with re-transcribed content, clean up, re-enable."""
         self._retranscribing = False
 
-        self._begin_write()
-        self._text.delete("1.0", tk.END)
-        if prefix:
-            self._text.insert(tk.END, prefix)
-        self._text.insert(tk.END, retranscribed)
-        if suffix:
-            self._text.insert(tk.END, suffix)
-        self._render_markdown()
-        self._end_write()
-        self._text.see(tk.END)
-        self._session_prefix = prefix + retranscribed
+        if retranscribed is not None:
+            processed = apply_commands_full(clean(retranscribed))
+            final     = processed if processed is not None else retranscribed
 
-        diff_exists = session_mgr.diff_path.exists()
-        status = (
-            t("status.diff_saved", name=session_mgr.diff_path.name)
-            if diff_exists
-            else t("status.ready", lang=self._settings.language)
-        )
-        self._status_var.set(status)
+            self._begin_write()
+            self._text.delete("1.0", tk.END)
+            if prefix:
+                self._text.insert(tk.END, prefix)
+            self._text.insert(tk.END, final)
+            if suffix:
+                self._text.insert(tk.END, suffix)
+            self._render_markdown()
+            self._end_write()
+            self._text.see(tk.END)
+            self._session_prefix = prefix + final
+
+            diff_exists = session_mgr.diff_path.exists()
+            status = (
+                t("status.diff_saved", name=session_mgr.diff_path.name)
+                if diff_exists
+                else t("status.ready", lang=self._settings.language)
+            )
+            self._status_var.set(status)
+        else:
+            self._status_var.set(t("status.ready", lang=self._settings.language))
 
         session_mgr.cleanup()
         self._session_mgr = None
