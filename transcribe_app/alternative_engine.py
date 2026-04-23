@@ -31,6 +31,8 @@ LANGUAGE_TRANSLATION = {
 class Config:
     sample_rate: int = 16000
     frame_ms: int = 30
+    input_device: int | None = None
+    mic_gain: float = 1.0
 
     vad_aggressiveness: int = 2
 
@@ -141,7 +143,12 @@ class SpeechToTextEngine:
         if status:
             log.warning(status)
 
-        frame = (indata[:, 0] * 32768).astype(np.int16)
+        samples = indata[:, 0].astype(np.float32, copy=False)
+        gain = float(self.cfg.mic_gain)
+        if gain != 1.0:
+            samples = samples * gain
+        samples = np.clip(samples, -1.0, 1.0)
+        frame = np.rint(samples * 32767.0).astype(np.int16)
 
         if self.audio_sink is not None:
             self.audio_sink(frame)
@@ -347,6 +354,7 @@ class SpeechToTextEngine:
             blocksize=self.frame_size,
             latency="high",
             callback=self.audio_callback,
+            device=self.cfg.input_device,
         )
         if sys.platform == "win32":
             try:

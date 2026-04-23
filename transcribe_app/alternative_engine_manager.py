@@ -50,6 +50,7 @@ class AlternativeEngineManager(EngineManagerProtocol):
         self._accumulated:    str                     = ""
 
         self.mic_gain:        float                                   = 1.0
+        self.input_device:    int | None                              = None
         self.audio_sink:      "Callable[[np.ndarray], None] | None"  = None
         self.vad_silence_gap: float                                   = 0.8
 
@@ -95,7 +96,15 @@ class AlternativeEngineManager(EngineManagerProtocol):
         model_size = get_model_size(lang, speed, use_gpu)
         self._on_status(loading_status(model_size, lang, use_gpu))
         try:
-            self._engine = factory(self._make_config(lang, prompt, speed, compute_device, self.vad_silence_gap))
+            cfg = self._make_config(lang, prompt, speed, compute_device, self.vad_silence_gap)
+            cfg = cfg.__class__(
+                **{
+                    **cfg.__dict__,
+                    "input_device": self.input_device,
+                    "mic_gain": self.mic_gain,
+                }
+            )
+            self._engine = factory(cfg)
             self._on_status(t("status.ready", lang=lang))
             self._on_ready(True)
         except Exception as exc:
@@ -132,6 +141,18 @@ class AlternativeEngineManager(EngineManagerProtocol):
         """Start the engine's own sounddevice stream and begin polling results."""
         if self._engine is None:
             return
+
+        # The VAD backend keeps its own frozen Config instance, so sync the
+        # latest UI-selected input device and gain into the already-loaded
+        # engine before opening the stream.
+        if hasattr(self._engine, "cfg") and self._engine.cfg is not None:
+            self._engine.cfg = self._engine.cfg.__class__(
+                **{
+                    **self._engine.cfg.__dict__,
+                    "input_device": self.input_device,
+                    "mic_gain": self.mic_gain,
+                }
+            )
 
         self._accumulated = ""
         self._poll_stop.clear()

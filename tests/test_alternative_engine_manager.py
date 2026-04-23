@@ -68,6 +68,10 @@ class TestConstruction:
         manager, _, _, _ = _make_manager()
         assert manager.audio_sink is None
 
+    def test_input_device_defaults_to_none(self):
+        manager, _, _, _ = _make_manager()
+        assert manager.input_device is None
+
     def test_engine_is_none_before_start(self):
         manager, _, _, _ = _make_manager()
         assert manager._engine is None
@@ -86,6 +90,15 @@ class TestLoadEngine:
         manager, cbs, _, _ = _make_manager()
         manager._load_engine("English", "", "fast", "cpu")
         cbs["on_ready"].assert_called_once_with(True)
+
+    def test_passes_input_device_and_gain_to_engine_config(self):
+        manager, _, _, factory = _make_manager()
+        manager.input_device = 4
+        manager.mic_gain = 1.5
+        manager._load_engine("English", "", "fast", "cpu")
+        cfg = factory.call_args.args[0]
+        assert cfg.input_device == 4
+        assert cfg.mic_gain == 1.5
 
     def test_on_status_called_during_load(self):
         manager, cbs, _, _ = _make_manager()

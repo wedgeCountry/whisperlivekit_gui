@@ -272,3 +272,17 @@ class TestAudioCallback:
         indata = np.ones((480, 1), dtype=np.float32) * 0.5
         # Should not raise when audio_sink is None
         engine.audio_callback(indata, 480, None, None)
+
+    def test_clips_peak_instead_of_wrapping(self):
+        engine = _make_engine()
+        indata = np.ones((32, 1), dtype=np.float32)
+        engine.audio_callback(indata, 32, None, None)
+        frame = engine.audio_q.get_nowait()
+        assert np.all(frame == 32767)
+
+    def test_applies_mic_gain_before_quantizing(self):
+        engine = _make_engine(mic_gain=2.0)
+        indata = np.full((16, 1), 0.25, dtype=np.float32)
+        engine.audio_callback(indata, 16, None, None)
+        frame = engine.audio_q.get_nowait()
+        assert np.all(frame > 10000)

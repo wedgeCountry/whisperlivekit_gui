@@ -79,6 +79,8 @@ class TranscriptionApp:
         self._mgr: EngineManagerProtocol = self._make_manager()
         if hasattr(self._mgr, "vad_silence_gap"):
             self._mgr.vad_silence_gap = self._settings.vad_silence_gap
+        if hasattr(self._mgr, "input_device"):
+            self._mgr.input_device = self._settings.input_device
 
         apply_ttk_style(root)
         self._build_ui()
@@ -142,6 +144,8 @@ class TranscriptionApp:
         self._mgr.mic_gain = self._settings.mic_gain
         if hasattr(self._mgr, "vad_silence_gap"):
             self._mgr.vad_silence_gap = self._settings.vad_silence_gap
+        if hasattr(self._mgr, "input_device"):
+            self._mgr.input_device = self._settings.input_device
         self._mgr.start(
             self._settings.language,
             self._settings.prompts[self._settings.language],
@@ -861,6 +865,8 @@ class TranscriptionApp:
             self._settings = new
             settings_io.save(self._settings)
             self._mgr.mic_gain = new.mic_gain
+            if hasattr(self._mgr, "input_device"):
+                self._mgr.input_device = new.input_device
 
         win = MicTestWindow(self.root, self._settings, _on_device_save)
         self._register_popup(win._win)
