@@ -286,6 +286,20 @@ class EngineManager(EngineManagerProtocol):
         """The FasterWhisperASR backend, or None if the model is not yet loaded."""
         return self._async_engine.whisper_asr if self._async_engine is not None else None
 
+    def transcribe_audio(self, audio: "np.ndarray", prompt: str) -> "str | None":
+        """Transcribe audio using the loaded WhisperLiveKit ASR backend.
+
+        Returns None if the active ASR backend is streaming-only (e.g.
+        SimulStreamingASR) and does not support batch transcription.
+        """
+        import inspect  # noqa: PLC0415
+        asr = self.whisper_asr
+        if asr is None:
+            return None
+        if "init_prompt" not in inspect.signature(asr.transcribe).parameters:
+            return None
+        return asr.transcribe(audio, init_prompt=prompt)
+
     # ── Shutdown ──────────────────────────────────────────────────────────────
 
     def shutdown(self) -> None:

@@ -15,7 +15,6 @@ Not responsible for
 
 import difflib
 import logging
-import os.path
 import queue
 import sys
 import threading
@@ -27,7 +26,6 @@ from tkinter import filedialog, scrolledtext, ttk
 
 import numpy as np
 from scipy.io import wavfile
-from ..alternative_engine import Config, SpeechToTextEngine, LANGUAGE_TRANSLATION
 from ..session_file_manager import SessionFileManager
 
 _log = logging.getLogger(__name__)
@@ -43,7 +41,6 @@ _TRANSCRIPTION_DIFF_DIR = (
     if sys.platform == "win32"
     else Path.home() / ".config" / "transcribe_app" / "diff"
 )
-_RETRANSCRIBE_TIMEOUT_S = 120   # max seconds to wait for re-transcription before giving up
 
 from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS, GPU, SAMPLE_RATE, DTYPE
 from ..engine import loading_status
@@ -58,21 +55,6 @@ from .theme import (
     F_MONO, F_SMALL, apply_ttk_style, hoverable, make_btn,
 )
 
-
-def load_wav_as_array(wav_filename: str) -> tuple[int, np.ndarray]:
-    """
-    Load a WAV file and return its sample rate and audio data as a NumPy array.
-
-    Args:
-        wav_filename: Name of the WAV file to load
-
-    Returns:
-        Tuple of (sample_rate, audio_array)
-    """
-
-    # sample rate is determined automatically!
-    sample_rate, audio_array = wavfile.read(wav_filename)
-    return sample_rate, audio_array
 
 class TranscriptionApp:
     def __init__(self, root: tk.Tk) -> None:
@@ -611,41 +593,32 @@ class TranscriptionApp:
         self._set_record_btn_state()
         self._status_var.set(t("status.ready", lang=self._settings.language))
 
-    def _do_retranscribe(self, session_mgr: SessionFileManager, live_text: str) -> str:
-        """Executor task: transcribe WAV files via faster-whisper, write diff.
-
-        Calls asr.model.transcribe() (faster_whisper.WhisperModel) directly so
-        the file path is passed as-is — no manual WAV loading needed — and we
-        are not subject to backend-specific wrapper signatures.
-        """
+    def _do_retranscribe(self, session_mgr: SessionFileManager, live_text: str) -> "str | None":
+        """Background task: re-transcribe captured WAV files via the engine protocol and write a diff."""
         prompt = self._settings.prompts[self._settings.language]
-
-        use_gpu = self._settings.compute_device == "cuda" and GPU
-        asr_cfg = Config(
-            model_size=get_model_size(self._settings.language, self._settings.model_speed, use_gpu),
-            device="cpu" if not use_gpu else "cuda",
-            language=LANGUAGE_TRANSLATION.get(self._settings.language, "auto"),
-            initial_prompt=prompt,
-            output_mode="queue",
-            sample_rate=SAMPLE_RATE
-        )
-
-        engine = SpeechToTextEngine(asr_cfg)
 
         parts: list[np.ndarray] = []
         for wav_path in session_mgr.wav_paths:
             if not wav_path.exists():
                 _log.warning("Re-transcription: WAV file missing: %s", wav_path)
                 continue
-            sr, chunk = load_wav_as_array(wav_filename=os.path.join(session_mgr._wav_dir, wav_path.name))
+            sr, chunk = wavfile.read(wav_path)
             if sr != SAMPLE_RATE:
-                _log.warning("Re-transcription: unexpected sample rate %d in %s (expected %d)", sr, wav_path.name, SAMPLE_RATE)
+                _log.warning(
+                    "Re-transcription: unexpected sample rate %d in %s (expected %d)",
+                    sr, wav_path.name, SAMPLE_RATE,
+                )
             parts.append(chunk)
 
-        # normalize audio so that it can be read by whisper
-        audio: np.ndarray = np.concatenate(parts).astype(np.float32) / 32768.0
+        if not parts:
+            raise RuntimeError("No audio files available for re-transcription")
 
-        retranscribed = engine.transcribe_internal(audio)
+        audio = np.concatenate(parts).astype(np.float32) / 32768.0
+        retranscribed = self._mgr.transcribe_audio(audio, prompt)
+
+        if retranscribed is None:
+            _log.debug("Re-transcription not supported by the active ASR backend — keeping live text")
+            return None
 
         sid = session_mgr.session_id
         diff_lines = list(difflib.unified_diff(

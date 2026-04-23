@@ -62,6 +62,15 @@ class EngineManagerProtocol(ABC):
     def whisper_asr(self) -> "object | None":
         """The ASR backend for post-session re-transcription, or None if unsupported."""
 
+    @abstractmethod
+    def transcribe_audio(self, audio: "np.ndarray", prompt: str) -> "str | None":
+        """Transcribe a float32 audio array synchronously.
+
+        Called from a background thread during ASR post-processing.
+        Returns the transcribed text, or None if this backend does not support
+        post-session re-transcription.
+        """
+
 
 def create_engine_manager(
     engine_type: str,

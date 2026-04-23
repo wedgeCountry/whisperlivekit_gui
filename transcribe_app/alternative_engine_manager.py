@@ -203,8 +203,13 @@ class AlternativeEngineManager(EngineManagerProtocol):
 
     @property
     def whisper_asr(self) -> None:
-        """Post-session re-transcription is not supported by this backend."""
         return None
+
+    def transcribe_audio(self, audio: "np.ndarray", prompt: str) -> "str | None":
+        """Transcribe audio using the loaded SpeechToTextEngine model."""
+        if self._engine is None:
+            return None
+        return self._engine.transcribe_internal(audio)
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
 
