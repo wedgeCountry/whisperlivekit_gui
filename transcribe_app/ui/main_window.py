@@ -138,17 +138,24 @@ class TranscriptionApp:
         self.root.rowconfigure(1, weight=1)
 
         # Menu bar
+        # _menu_labels: (menu, index, i18n_key) — built once, iterated by _apply_ui_lang
+        self._menu_labels: list[tuple[tk.Menu, int, str]] = []
         self._menubar = tk.Menu(self.root, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
         self.root.config(menu=self._menubar)
 
         self._file_menu = tk.Menu(self._menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
         self._menubar.add_cascade(label=t("menu.file"), menu=self._file_menu)
+        self._menu_labels.append((self._menubar, self._menubar.index(tk.END), "menu.file"))
         self._file_menu.add_command(label=t("menu.file.save"), command=self._save_file)
+        self._menu_labels.append((self._file_menu, self._file_menu.index(tk.END), "menu.file.save"))
         self._file_menu.add_command(label=t("menu.file.load"), command=self._load_file)
+        self._menu_labels.append((self._file_menu, self._file_menu.index(tk.END), "menu.file.load"))
 
         self._edit_menu = tk.Menu(self._menubar, bg=C_SURFACE, fg=C_TEXT, tearoff=0)
         self._menubar.add_cascade(label=t("menu.edit"), menu=self._edit_menu)
+        self._menu_labels.append((self._menubar, self._menubar.index(tk.END), "menu.edit"))
         self._edit_menu.add_command(label=t("menu.edit.settings"), command=self._open_settings)
+        self._menu_labels.append((self._edit_menu, self._edit_menu.index(tk.END), "menu.edit.settings"))
 
         # Row 0 — header
         header = tk.Frame(self.root, bg=C_HEADER)
@@ -295,14 +302,8 @@ class TranscriptionApp:
         """Re-render all static UI text in the active interface language."""
         self.root.title(t("window.title"))
         self._title_label.config(text=t("window.title"))
-        # Menu bar cascades
-        self._menubar.entryconfigure(0, label=t("menu.file"))
-        self._menubar.entryconfigure(1, label=t("menu.edit"))
-        # File menu entries
-        self._file_menu.entryconfigure(0, label=t("menu.file.save"))
-        self._file_menu.entryconfigure(1, label=t("menu.file.load"))
-        # Edit menu entries
-        self._edit_menu.entryconfigure(0, label=t("menu.edit.settings"))
+        for menu, idx, key in self._menu_labels:
+            menu.entryconfigure(idx, label=t(key))
         # Header labels
         self._lang_label.config(text=t("header.language"))
         self._model_label.config(text=t("header.model"))
