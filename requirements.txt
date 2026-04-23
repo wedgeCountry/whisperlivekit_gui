@@ -5,3 +5,4 @@ sounddevice
 language_tool_python
 scipy
 webrtcvad  # needs Microsoft Visual C++ 14.0+ to build on Windows
+more-itertools

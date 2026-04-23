@@ -23,7 +23,7 @@ _log = logging.getLogger(__name__)
 
 from transcribe_app.config import GPU, IS_WINDOWS, LANGUAGE_OPTS
 from transcribe_app.i18n import t
-from transcribe_app.model_status import loading_status
+from transcribe_app.model_status import is_model_cached, loading_status
 
 _AudioProcessor:       object = None  # type: ignore[assignment]
 _TranscriptionEngine:  object = None  # type: ignore[assignment]
@@ -238,7 +238,7 @@ class AsyncEngine:
 
         def maybe_capture_stderr(size: str) -> None:
             nonlocal orig_stderr
-            if orig_stderr is None and not _is_model_cached(size):
+            if orig_stderr is None and not is_model_cached(size):
                 orig_stderr = sys.stderr
                 sys.stderr  = _TqdmCapture(self._on_status, orig_stderr)
 
