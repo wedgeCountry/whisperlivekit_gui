@@ -12,12 +12,13 @@ datas_fw,  binaries_fw,  hiddenimports_fw  = collect_all('faster_whisper')
 datas_ct2, binaries_ct2, hiddenimports_ct2 = collect_all('ctranslate2')
 datas_ort, binaries_ort, hiddenimports_ort = collect_all('onnxruntime')
 datas_app, binaries_app, hiddenimports_app = collect_all('transcribe_app')
+icon_datas = [('assets/app_icon.png', 'assets')]
 
 a = Analysis(
     ['transcribe_app/__main__.py'],
     pathex=['.'],
     binaries=binaries_wlk + binaries_fw + binaries_ct2 + binaries_ort + binaries_app,
-    datas=datas_wlk + datas_fw + datas_ct2 + datas_ort + datas_app,
+    datas=datas_wlk + datas_fw + datas_ct2 + datas_ort + datas_app + icon_datas,
     hiddenimports=[
         # lazy imports in engine.py (imported inside background thread)
         'whisperlivekit',
@@ -103,5 +104,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon='assets/icon.ico',   # uncomment and provide an .ico file
+    icon='assets/app_icon.ico',
 )

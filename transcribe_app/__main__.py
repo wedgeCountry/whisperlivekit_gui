@@ -10,8 +10,14 @@ def _get_logo_path() -> Path | None:
     """Return the best available path to the app logo."""
     candidates: list[Path] = []
     if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass) / "assets" / "app_icon.png")
+        candidates.append(Path(sys.executable).resolve().parent / "assets" / "app_icon.png")
         candidates.append(Path(sys.executable).resolve().parent / "logo3.png")
-    candidates.append(Path(__file__).resolve().parent.parent / "logo3.png")
+    project_root = Path(__file__).resolve().parent.parent
+    candidates.append(project_root / "assets" / "app_icon.png")
+    candidates.append(project_root / "logo3.png")
     for path in candidates:
         if path.exists():
             return path
