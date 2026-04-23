@@ -62,10 +62,6 @@ class Config:
 # -----------------------------
 # LOGGER
 # -----------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-)
 log = logging.getLogger("asr")
 
 
@@ -357,6 +353,10 @@ class SpeechToTextEngine:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
     config = Config(
         # language
         language="de",   # or "auto"
