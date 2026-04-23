@@ -57,6 +57,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "status.wasapi_shared":   "⚠ WASAPI exclusive mode unavailable — Windows audio enhancements active",
         # ── Settings dialog ────────────────────────────────────────────────────
         "dlg.settings.asr":         "ASR post-processing:",
+        "dlg.settings.cleanup_recordings": "Auto-delete old recordings:",
         "dlg.settings.title":       "Settings",
         "dlg.settings.language":    "Language:",
         "dlg.settings.model":       "Model:",
@@ -116,6 +117,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "status.wasapi_shared":   "⚠ WASAPI-Exklusivmodus nicht verfügbar — Windows-Audioverbesserungen aktiv",
         # ── Settings dialog ────────────────────────────────────────────────────
         "dlg.settings.asr":         "ASR-Nachbearbeitung:",
+        "dlg.settings.cleanup_recordings": "Alte Aufnahmen automatisch löschen:",
         "dlg.settings.title":       "Einstellungen",
         "dlg.settings.language":    "Sprache:",
         "dlg.settings.model":       "Modell:",

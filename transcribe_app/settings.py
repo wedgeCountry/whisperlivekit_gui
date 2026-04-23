@@ -29,6 +29,7 @@ class Settings:
     ui_language:    str            = "en"      # interface language code; see i18n.UI_LANGUAGES
     compute_device:     str            = "cuda" if GPU else "cpu"  # "cuda" or "cpu"
     asr_postprocess:    bool           = False  # re-transcribe recording after session ends
+    cleanup_recordings: bool           = False  # delete old session/VAD recordings asynchronously after each recording
     engine_type:        str            = "whisperlive"  # "whisperlive" | "faster_whisper"
     vad_silence_gap:    float          = 0.8    # seconds of silence before a new VAD segment is flushed (faster_whisper only)
     vad_aggressiveness: int            = 2      # webrtcvad aggressiveness 0–3 (faster_whisper only)
@@ -92,6 +93,7 @@ def load(path: Path = _SETTINGS_FILE) -> Settings:
         ui_language=ui_language,
         compute_device=compute_device,
         asr_postprocess=bool(data.get("asr_postprocess", False)),
+        cleanup_recordings=bool(data.get("cleanup_recordings", False)),
         engine_type=engine_type,
         vad_silence_gap=vad_silence_gap,
         vad_aggressiveness=vad_aggressiveness,
@@ -112,6 +114,7 @@ def save(s: Settings, path: Path = _SETTINGS_FILE) -> None:
                     "ui_language":        s.ui_language,
                     "compute_device":     s.compute_device,
                     "asr_postprocess":    s.asr_postprocess,
+                    "cleanup_recordings": s.cleanup_recordings,
                     "engine_type":        s.engine_type,
                     "vad_silence_gap":    s.vad_silence_gap,
                     "vad_aggressiveness": s.vad_aggressiveness,

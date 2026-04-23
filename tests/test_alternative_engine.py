@@ -63,6 +63,12 @@ class TestConstruction:
         engine = _make_engine()
         assert not engine.stop_event.is_set()
 
+    def test_snippet_counter_does_not_reset_on_reset(self):
+        engine = _make_engine()
+        start = engine._snippet_counter
+        engine.reset()
+        assert engine._snippet_counter == start
+
 
 # ── reset() ────────────────────────────────────────────────────────────────────
 

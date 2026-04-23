@@ -92,6 +92,7 @@ class TestRoundtrip:
             mic_gain=2.5,
             ui_language="de",
             asr_postprocess=True,
+            cleanup_recordings=True,
             engine_type="faster_whisper",
             input_device=3,
         )
@@ -103,6 +104,7 @@ class TestRoundtrip:
         assert loaded.mic_gain      == original.mic_gain
         assert loaded.ui_language   == original.ui_language
         assert loaded.asr_postprocess == original.asr_postprocess
+        assert loaded.cleanup_recordings == original.cleanup_recordings
         assert loaded.engine_type   == original.engine_type
         assert loaded.input_device  == original.input_device
 

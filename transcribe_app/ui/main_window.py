@@ -27,6 +27,7 @@ from tkinter import filedialog, scrolledtext, ttk
 import numpy as np
 from scipy.io import wavfile
 from ..session_file_manager import SessionFileManager
+from ..recording_cleanup import start_async_recordings_cleanup
 
 _log = logging.getLogger(__name__)
 
@@ -48,6 +49,8 @@ from .theme import (
 
 
 class TranscriptionApp:
+    _RECORDING_CLEANUP_MAX_AGE_S = 120.0
+
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title(t("window.title"))
@@ -622,10 +625,9 @@ class TranscriptionApp:
             return
 
         # No re-transcription — finalise immediately.
-        if session_mgr:
-            session_mgr.cleanup()
         self._session_mgr = None
         self._session_draining = False
+        self._schedule_recording_cleanup()
         if not self._finalise_session():
             self._status_var.set(t("status.ready", lang=self._settings.language))
 
@@ -703,10 +705,15 @@ class TranscriptionApp:
         else:
             self._status_var.set(t("status.ready", lang=self._settings.language))
 
-        session_mgr.cleanup()
         self._session_mgr = None
         self._session_draining = False
+        self._schedule_recording_cleanup()
         self._finalise_session()
+
+    def _schedule_recording_cleanup(self) -> None:
+        """Delete stale session/VAD recordings on a background thread when enabled."""
+        if self._settings.cleanup_recordings:
+            start_async_recordings_cleanup(self._RECORDING_CLEANUP_MAX_AGE_S)
 
     def _render_markdown(self) -> None:
         for tag in ("h1", "h2", "h3", "para_space"):

@@ -109,10 +109,28 @@ class SpeechToTextEngine:
         # state (worker-owned → no race conditions)
         self.last_voice = time.time()
         self.session_id = 0
+        self._snippet_counter = self._discover_next_snippet_id()
 
         self.stop_event  = Event()
         self.flush_done  = Event()  # set by worker after its final flush at stop time
         self.loop = asyncio.new_event_loop()
+
+    def _discover_next_snippet_id(self) -> int:
+        if not self.cfg.wav_snippet_dir:
+            return 0
+        out_dir = Path(self.cfg.wav_snippet_dir)
+        try:
+            ids = []
+            for path in out_dir.glob("snippet_*.wav"):
+                stem = path.stem
+                try:
+                    ids.append(int(stem.split("_")[-1]))
+                except ValueError:
+                    continue
+            return (max(ids) + 1) if ids else 0
+        except Exception:
+            log.warning("Could not scan VAD snippet directory", exc_info=True)
+            return 0
 
     # -------------------------
     # RESET
@@ -217,7 +235,8 @@ class SpeechToTextEngine:
         out_dir = Path(self.cfg.wav_snippet_dir)
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
-            path = out_dir / f"snippet_{sid:04d}.wav"
+            path = out_dir / f"snippet_{self._snippet_counter:04d}.wav"
+            self._snippet_counter += 1
             with wave.open(str(path), "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)  # int16 = 2 bytes/sample

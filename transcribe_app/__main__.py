@@ -32,9 +32,11 @@ def _fix_frozen_streams() -> None:
 
 
 def main() -> None:
+    from transcribe_app.recording_cleanup import delete_all_recording_artifacts
     from transcribe_app.ui.main_window import TranscriptionApp
     logging.getLogger("whisperlivekit").setLevel(logging.WARNING)
     logging.getLogger("whisperlivekit.audio_processor").setLevel(logging.WARNING)
+    delete_all_recording_artifacts()
     root = tk.Tk()
     TranscriptionApp(root)
     root.mainloop()
