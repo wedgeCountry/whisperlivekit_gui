@@ -84,9 +84,11 @@ class TranscriptionApp:
         self._session_mgr:    "object | None" = None  # SessionFileManager for active/last session
         self._engine_ready:   bool          = False  # True once on_ready(True) arrives; False during reload
         self._session_draining: bool        = False  # True between stop_session() and _postprocess() completing
+        self._pending_engine_action: "Callable[[], None] | None" = None  # deferred reload/recreate
 
         self._mgr: EngineManagerProtocol = self._make_manager()
-        self._mgr.vad_silence_gap = self._settings.vad_silence_gap
+        if hasattr(self._mgr, "vad_silence_gap"):
+            self._mgr.vad_silence_gap = self._settings.vad_silence_gap
 
         apply_ttk_style(root)
         self._build_ui()
@@ -123,7 +125,8 @@ class TranscriptionApp:
         self._record_btn.config(state=tk.DISABLED)
         self._mgr = self._make_manager()
         self._mgr.mic_gain = self._settings.mic_gain
-        self._mgr.vad_silence_gap = self._settings.vad_silence_gap
+        if hasattr(self._mgr, "vad_silence_gap"):
+            self._mgr.vad_silence_gap = self._settings.vad_silence_gap
         self._mgr.start(
             self._settings.language,
             self._settings.prompts[self._settings.language],
@@ -278,6 +281,21 @@ class TranscriptionApp:
         if self._engine_ready and not self._session_draining:
             self._record_btn.config(state=tk.NORMAL)
             self._clear_btn.config(state=tk.NORMAL)
+
+    def _finalise_session(self) -> bool:
+        """Called when a session finishes draining.
+
+        Runs any pending engine action (reload/recreate from a settings save that
+        arrived while a session was active).  Returns True if an action ran — the
+        caller should skip the 'ready' status update in that case.
+        """
+        action = self._pending_engine_action
+        self._pending_engine_action = None
+        if action is not None:
+            action()
+            return True
+        self._set_record_btn_state()
+        return False
 
     # ── Language selector ──────────────────────────────────────────────────────
 
@@ -589,8 +607,8 @@ class TranscriptionApp:
             session_mgr.cleanup()
         self._session_mgr = None
         self._session_draining = False
-        self._set_record_btn_state()
-        self._status_var.set(t("status.ready", lang=self._settings.language))
+        if not self._finalise_session():
+            self._status_var.set(t("status.ready", lang=self._settings.language))
 
     def _do_retranscribe(self, session_mgr: SessionFileManager, live_text: str) -> "str | None":
         """Background task: re-transcribe captured WAV files via the engine protocol and write a diff."""
@@ -669,7 +687,7 @@ class TranscriptionApp:
         session_mgr.cleanup()
         self._session_mgr = None
         self._session_draining = False
-        self._set_record_btn_state()
+        self._finalise_session()
 
     def _render_markdown(self) -> None:
         for tag in ("h1", "h2", "h3", "para_space"):
@@ -786,9 +804,10 @@ class TranscriptionApp:
             if new.ui_language != old_ui_lang:
                 set_language(new.ui_language)
                 self._apply_ui_lang()
+
+            # Determine which engine action is needed (if any).
             if new.engine_type != old_engine_type:
-                # Engine backend changed — tear down and rebuild from scratch.
-                self._recreate_manager()
+                action = self._recreate_manager
             elif (
                 new.language != old_lang
                 or new.prompts[new.language] != old_prompt
@@ -796,8 +815,24 @@ class TranscriptionApp:
                 or new.compute_device != old_device
                 or new.vad_silence_gap != old_silence_gap
             ):
-                self._mgr.vad_silence_gap = new.vad_silence_gap
-                self._reload_engine(new.language)
+                if hasattr(self._mgr, "vad_silence_gap"):
+                    self._mgr.vad_silence_gap = new.vad_silence_gap
+                action = lambda: self._reload_engine(new.language)
+            else:
+                action = None
+
+            if action is None:
+                return
+
+            # Stop any active recording before touching the engine.
+            if self._recording:
+                self._stop_recording()
+
+            # If a session is still draining, defer until it finishes.
+            if self._session_draining:
+                self._pending_engine_action = action
+            else:
+                action()
 
         dialog = SettingsDialog(self.root, self._settings, on_save)
         self._register_popup(dialog._win)
