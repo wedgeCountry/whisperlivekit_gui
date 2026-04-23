@@ -103,10 +103,35 @@ class TranscriptionApp:
             on_finalise=lambda c: self._ui_queue.put(("finalise", c)),
             # on_open_mic references self._mgr by name so that after _recreate_manager
             # replaces self._mgr, the new manager's open_mic_stream is called.
-            on_open_mic=lambda: self.root.after(
-                0, lambda: self._mgr.open_mic_stream(self._settings.input_device)
-            ),
+            on_open_mic=lambda: self.root.after(0, self._open_mic_stream_from_ui),
         )
+
+    def _open_mic_stream_from_ui(self) -> None:
+        """Open the live mic stream and recover cleanly if Windows audio setup fails."""
+        try:
+            self._mgr.open_mic_stream(self._settings.input_device)
+        except Exception as exc:  # noqa: BLE001
+            _log.error("Opening live microphone stream failed", exc_info=True)
+            self._mgr.audio_sink = None
+            if self._session_mgr is not None:
+                self._session_mgr.cleanup()
+                self._session_mgr = None
+            try:
+                self._mgr.stop_session()
+            except Exception:
+                _log.warning("Stopping failed recording session after mic-open error failed", exc_info=True)
+            self._recording = False
+            self._session_draining = False
+            self._record_btn.config(
+                text=t("btn.record"),
+                bg=C_ACCENT, activebackground=C_ACCENT_H,
+            )
+            hoverable(self._record_btn, C_ACCENT, C_ACCENT_H)
+            self._clear_btn.config(state=tk.NORMAL)
+            self._text.config(state=tk.NORMAL)
+            self._status_var.set(t("status.error", exc=exc))
+            self._set_record_btn_state()
+            self.root.config(cursor="")
 
     def _recreate_manager(self) -> None:
         """Shut down the current manager and replace it with a fresh one."""

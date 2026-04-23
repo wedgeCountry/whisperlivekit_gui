@@ -170,6 +170,50 @@ class TestOpenMicStream:
         assert manager._stream is None
         fake_stream.close.assert_called_once()
 
+    def test_windows_falls_back_to_shared_mode(self):
+        manager = _make_manager()
+        manager._async_engine = MagicMock()
+        manager._async_engine.processor = MagicMock()
+        manager._loop = _fake_loop()
+
+        exclusive_exc = OSError("exclusive busy")
+        shared_stream = MagicMock()
+        sd = MagicMock()
+        sd.WasapiSettings.return_value = object()
+        sd.InputStream.side_effect = [exclusive_exc, shared_stream]
+
+        with patch("transcribe_app.engine_manager.IS_WINDOWS", True):
+            with patch.dict("sys.modules", {"sounddevice": sd}):
+                manager.open_mic_stream()
+
+        assert manager._stream is shared_stream
+        shared_stream.start.assert_called_once()
+        manager._on_status.assert_called_once()
+
+    def test_windows_falls_back_to_default_device(self):
+        manager = _make_manager()
+        manager._async_engine = MagicMock()
+        manager._async_engine.processor = MagicMock()
+        manager._loop = _fake_loop()
+
+        fallback_stream = MagicMock()
+        sd = MagicMock()
+        sd.WasapiSettings.return_value = object()
+        sd.InputStream.side_effect = [
+            OSError("device missing"),
+            OSError("shared missing"),
+            fallback_stream,
+        ]
+
+        with patch("transcribe_app.engine_manager.IS_WINDOWS", True):
+            with patch.dict("sys.modules", {"sounddevice": sd}):
+                manager.open_mic_stream(device=7)
+
+        assert manager._stream is fallback_stream
+        fallback_stream.start.assert_called_once()
+        third_call = sd.InputStream.call_args_list[2]
+        assert third_call.kwargs["device"] is None
+
 
 # ── stop_session() ────────────────────────────────────────────────────────────
 

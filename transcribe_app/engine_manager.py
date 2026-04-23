@@ -245,23 +245,64 @@ class EngineManager(EngineManagerProtocol):
             raise RuntimeError("open_mic_stream must be called from the UI (main) thread")
         import sounddevice as sd  # noqa: PLC0415
 
+        sample_rate = SAMPLE_RATE
+        dtype = DTYPE
+
         kwargs = dict(
-            samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
-            blocksize=int(SAMPLE_RATE * CHUNK_SECONDS),
+            samplerate=sample_rate, channels=CHANNELS, dtype=dtype,
+            blocksize=int(sample_rate * CHUNK_SECONDS),
             callback=self._make_audio_callback(self._async_engine.processor, self._loop),  # type: ignore[arg-type]
             device=device,
         )
         if stream_factory is not None:
             stream = stream_factory(**kwargs)
         elif IS_WINDOWS:
-            try:
-                stream = sd.InputStream(**kwargs, extra_settings=sd.WasapiSettings(exclusive=True))
-            except Exception:
-                _log.warning(
-                    "WASAPI exclusive mode unavailable; falling back to shared mode "
-                    "(Windows audio enhancements may affect recording quality)"
-                )
-                stream = sd.InputStream(**kwargs)
+            attempts: list[tuple[dict, dict, "Callable[[], None] | None"]] = [
+                (
+                    kwargs,
+                    {"extra_settings": sd.WasapiSettings(exclusive=True)},
+                    None,
+                ),
+                (
+                    kwargs,
+                    {},
+                    lambda: self._on_status(t("status.wasapi_shared")),
+                ),
+            ]
+            if device is not None:
+                default_kwargs = dict(kwargs, device=None)
+                attempts.extend([
+                    (
+                        default_kwargs,
+                        {"extra_settings": sd.WasapiSettings(exclusive=True)},
+                        None,
+                    ),
+                    (
+                        default_kwargs,
+                        {},
+                        lambda: self._on_status(t("status.wasapi_shared")),
+                    ),
+                ])
+
+            last_exc: Exception | None = None
+            stream = None
+            for stream_kwargs, extra_kwargs, on_success in attempts:
+                try:
+                    stream = sd.InputStream(**stream_kwargs, **extra_kwargs)
+                    if on_success is not None:
+                        on_success()
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if stream_kwargs.get("device") is None and device is not None:
+                        _log.warning(
+                            "Opening configured input device failed; retried with system default",
+                            exc_info=True,
+                        )
+                    else:
+                        _log.warning("Could not open Windows microphone stream", exc_info=True)
+            if stream is None:
+                raise last_exc if last_exc is not None else RuntimeError("Could not open microphone stream")
         else:
             stream = sd.InputStream(**kwargs)
         try:
