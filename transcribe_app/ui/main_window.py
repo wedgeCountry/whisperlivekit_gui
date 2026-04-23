@@ -13,6 +13,7 @@ Not responsible for
 * Text cleaning / voice commands                      →  text_processing
 """
 
+import contextlib
 import difflib
 import logging
 import queue
@@ -358,9 +359,8 @@ class TranscriptionApp:
             # Released before 3 s — cancel timer and insert a plain space
             self.root.after_cancel(self._space_after_id)
             self._space_after_id = None
-            self._begin_write()
-            self._text.insert(tk.INSERT, " ")
-            self._end_write()
+            with self._write_ctx():
+                self._text.insert(tk.INSERT, " ")
         elif self._recording:
             self._stop_recording()
 
@@ -453,14 +453,14 @@ class TranscriptionApp:
 
     # ── Text area helpers ──────────────────────────────────────────────────────
 
-    def _begin_write(self) -> None:
-        """Temporarily re-enable the text widget for a programmatic update."""
+    @contextlib.contextmanager
+    def _write_ctx(self):
         self._text.config(state=tk.NORMAL)
-
-    def _end_write(self) -> None:
-        """Re-disable the text widget if recording is active."""
-        if self._recording:
-            self._text.config(state=tk.DISABLED)
+        try:
+            yield
+        finally:
+            if self._recording:
+                self._text.config(state=tk.DISABLED)
 
     # ── Text display ───────────────────────────────────────────────────────────
 
@@ -483,18 +483,17 @@ class TranscriptionApp:
             self._last_display_sig = sig
             self._last_text_time   = time.monotonic()
 
-        self._begin_write()
-        self._text.delete("1.0", tk.END)
-        if self._session_prefix:
-            self._text.insert(tk.END, self._session_prefix)
-        if display_committed:
-            self._text.insert(tk.END, display_committed)
-        if display_buffer:
-            self._text.insert(tk.END, (" " if display_committed else "") + display_buffer, "buffer")
-        if self._session_suffix:
-            self._text.insert(tk.END, self._session_suffix)
-        self._render_markdown()
-        self._end_write()
+        with self._write_ctx():
+            self._text.delete("1.0", tk.END)
+            if self._session_prefix:
+                self._text.insert(tk.END, self._session_prefix)
+            if display_committed:
+                self._text.insert(tk.END, display_committed)
+            if display_buffer:
+                self._text.insert(tk.END, (" " if display_committed else "") + display_buffer, "buffer")
+            if self._session_suffix:
+                self._text.insert(tk.END, self._session_suffix)
+            self._render_markdown()
         self._text.see(tk.END)
 
     def _restructure(self) -> None:
@@ -551,15 +550,14 @@ class TranscriptionApp:
         new_text_final = processed if processed is not None else new_text
 
         if processed is not None:
-            self._begin_write()
-            self._text.delete("1.0", tk.END)
-            if prefix:
-                self._text.insert(tk.END, prefix)
-            self._text.insert(tk.END, new_text_final)
-            if suffix:
-                self._text.insert(tk.END, suffix)
-            self._render_markdown()
-            self._end_write()
+            with self._write_ctx():
+                self._text.delete("1.0", tk.END)
+                if prefix:
+                    self._text.insert(tk.END, prefix)
+                self._text.insert(tk.END, new_text_final)
+                if suffix:
+                    self._text.insert(tk.END, suffix)
+                self._render_markdown()
             self._text.see(tk.END)
             self._session_prefix = prefix + new_text_final
 
@@ -646,15 +644,14 @@ class TranscriptionApp:
             processed = apply_commands_full(clean(retranscribed))
             final     = processed if processed is not None else retranscribed
 
-            self._begin_write()
-            self._text.delete("1.0", tk.END)
-            if prefix:
-                self._text.insert(tk.END, prefix)
-            self._text.insert(tk.END, final)
-            if suffix:
-                self._text.insert(tk.END, suffix)
-            self._render_markdown()
-            self._end_write()
+            with self._write_ctx():
+                self._text.delete("1.0", tk.END)
+                if prefix:
+                    self._text.insert(tk.END, prefix)
+                self._text.insert(tk.END, final)
+                if suffix:
+                    self._text.insert(tk.END, suffix)
+                self._render_markdown()
             self._text.see(tk.END)
             self._session_prefix = prefix + final
 
@@ -695,9 +692,8 @@ class TranscriptionApp:
         return "break"
 
     def _clear_text(self) -> None:
-        self._begin_write()
-        self._text.delete("1.0", tk.END)
-        self._end_write()
+        with self._write_ctx():
+            self._text.delete("1.0", tk.END)
         self._session_prefix = ""
         self._session_suffix = ""
 
@@ -737,10 +733,9 @@ class TranscriptionApp:
         if not path:
             return
         text = Path(path).read_text(encoding="utf-8")
-        self._begin_write()
-        self._text.delete("1.0", tk.END)
-        self._text.insert(tk.END, text)
-        self._end_write()
+        with self._write_ctx():
+            self._text.delete("1.0", tk.END)
+            self._text.insert(tk.END, text)
         self._session_prefix     = text
         self._last_raw_committed  = ""
         self._absorbed_committed  = ""

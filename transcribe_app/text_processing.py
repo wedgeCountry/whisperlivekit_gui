@@ -1,5 +1,6 @@
 """Pure text-processing helpers — no UI, no engine, no I/O."""
 
+import functools
 import re
 
 # ── Whisper artefact cleanup ───────────────────────────────────────────────────
@@ -83,9 +84,14 @@ def apply_commands_full(text: str) -> str | None:
 
 # ── Prompt-leak removal ────────────────────────────────────────────────────────
 
+@functools.lru_cache(maxsize=8)
+def _prompt_pattern(prompt: str) -> re.Pattern[str]:
+    return re.compile(re.escape(prompt), re.IGNORECASE)
+
+
 def strip_prompt_leak(text: str, prompt: str) -> str:
     """Remove the Whisper static_init_prompt if Whisper hallucinates it back."""
     if not prompt or not text:
         return text
-    text = re.sub(re.escape(prompt), " ", text, flags=re.IGNORECASE)
+    text = _prompt_pattern(prompt).sub(" ", text)
     return re.sub(r"  +", " ", text).strip()
