@@ -24,7 +24,7 @@ _CONFIG_DIR = (
 _SETTINGS_FILE = _CONFIG_DIR / "settings.json"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Settings:
     language:       str            = DEFAULT_LANGUAGE
     prompts:        dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PROMPTS))
