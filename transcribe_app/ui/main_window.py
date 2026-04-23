@@ -43,8 +43,9 @@ from transcribe_app.settings import Settings
 from ..text_processing import apply_commands_full, clean, strip_prompt_leak
 from .theme import (
     C_ACCENT, C_ACCENT_H, C_BG, C_BORDER, C_BUFFER, C_DANGER, C_DANGER_H,
-    C_HEADER, C_MUTED, C_STATUS_BG, C_SURFACE, C_TEXT,
-    F_MONO, F_SMALL, apply_ttk_style, hoverable, make_btn,
+    C_HEADER, C_INPUT, C_MUTED, C_STATUS_BG, C_SURFACE, C_TEXT,
+    F_MONO, F_SMALL, apply_ttk_style, hoverable, make_btn, make_card,
+    style_text_widget,
 )
 
 
@@ -183,25 +184,31 @@ class TranscriptionApp:
         self._menu_labels.append((self._edit_menu, self._edit_menu.index(tk.END), "menu.edit.settings"))
 
         # Row 0 — header
-        header = tk.Frame(self.root, bg=C_HEADER)
-        header.grid(row=0, column=0, sticky="ew")
+        header = make_card(self.root, bg=C_HEADER, padx=16, pady=12)
+        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 8))
         header.columnconfigure(1, weight=1)
-        tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=0, column=0, sticky="sew")
 
         self._title_label = tk.Label(
             header, text=t("window.title"),
             bg=C_HEADER, fg=C_TEXT,
             font=("TkDefaultFont", 13, "bold"),
-            padx=16, pady=12,
         )
         self._title_label.grid(row=0, column=0, sticky="w")
+        self._subtitle_label = tk.Label(
+            header,
+            text=t("status.ready", lang=self._settings.language),
+            bg=C_HEADER,
+            fg=C_MUTED,
+            font=F_SMALL,
+        )
+        self._subtitle_label.grid(row=1, column=0, sticky="w", pady=(3, 0))
 
         lang_frame = tk.Frame(header, bg=C_HEADER)
-        lang_frame.grid(row=0, column=2, padx=12, pady=8, sticky="e")
+        lang_frame.grid(row=0, column=2, rowspan=2, padx=12, sticky="e")
         self._lang_label = tk.Label(
             lang_frame, text=t("header.language"), bg=C_HEADER, fg=C_MUTED, font=F_SMALL
         )
-        self._lang_label.pack(side=tk.LEFT, padx=(0, 6))
+        self._lang_label.pack(anchor="w", padx=(2, 0))
         self._lang_var = tk.StringVar(value=self._settings.language)
         self._lang_combo = ttk.Combobox(
             lang_frame,
@@ -209,16 +216,17 @@ class TranscriptionApp:
             values=list(LANGUAGE_OPTS.keys()),
             state="readonly", width=10,
             font=("TkDefaultFont", 10),
+            style="Modern.TCombobox",
         )
-        self._lang_combo.pack(side=tk.LEFT)
+        self._lang_combo.pack(anchor="w", pady=(4, 0))
         self._lang_combo.bind("<<ComboboxSelected>>", self._on_language_change)
 
         speed_frame = tk.Frame(header, bg=C_HEADER)
-        speed_frame.grid(row=0, column=3, padx=(0, 4), pady=8, sticky="e")
+        speed_frame.grid(row=0, column=3, rowspan=2, padx=(0, 4), sticky="e")
         self._model_label = tk.Label(
             speed_frame, text=t("header.model"), bg=C_HEADER, fg=C_MUTED, font=F_SMALL
         )
-        self._model_label.pack(side=tk.LEFT, padx=(0, 6))
+        self._model_label.pack(anchor="w", padx=(2, 0))
         self._speed_var = tk.StringVar(value=t(f"speed.{self._settings.model_speed}"))
         self._speed_combo = ttk.Combobox(
             speed_frame,
@@ -226,13 +234,13 @@ class TranscriptionApp:
             values=[t("speed.fast"), t("speed.normal")],
             state="readonly", width=8,
             font=("TkDefaultFont", 10),
+            style="Modern.TCombobox",
         )
-        self._speed_combo.pack(side=tk.LEFT)
+        self._speed_combo.pack(anchor="w", pady=(4, 0))
         self._speed_combo.bind("<<ComboboxSelected>>", self._on_speed_change)
 
         # Row 1 — text area
-        tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=1, column=0, sticky="new")
-        border_frame = tk.Frame(self.root, bg=C_BORDER)
+        border_frame = make_card(self.root, padx=1, pady=1)
         border_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=10)
         border_frame.rowconfigure(0, weight=1)
         border_frame.columnconfigure(0, weight=1)
@@ -240,13 +248,21 @@ class TranscriptionApp:
         self._text = scrolledtext.ScrolledText(
             border_frame,
             wrap=tk.WORD, font=F_MONO,
-            bg=C_SURFACE, fg=C_TEXT,
-            insertbackground=C_TEXT,
-            selectbackground=C_ACCENT, selectforeground="#ffffff",
-            relief=tk.FLAT, bd=0, padx=14, pady=12,
+            padx=14, pady=12,
             undo=True,
         )
         self._text.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
+        style_text_widget(self._text)
+        self._text.configure(bg=C_INPUT)
+        self._text.vbar.configure(
+            bg="#cbd5e1",
+            activebackground="#94a3b8",
+            troughcolor=C_SURFACE,
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=0,
+            width=10,
+        )
         self._text.bind("<Control-a>", self._select_all)
         self._text.tag_configure("buffer",    foreground=C_BUFFER,
                                               font=("TkFixedFont", 11, "italic"))
@@ -259,7 +275,6 @@ class TranscriptionApp:
         self._text.tag_configure("para_space", spacing1=10)
 
         # Row 2 — button bar
-        tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=2, column=0, sticky="ew")
         btn_bar = tk.Frame(self.root, bg=C_BG, pady=10)
         btn_bar.grid(row=2, column=0, sticky="ew")
         btn_bar.columnconfigure((0, 1, 2, 3), weight=1)
@@ -276,7 +291,6 @@ class TranscriptionApp:
         self._mic_test_btn.grid(row=0, column=3, padx=(6, 12))
 
         # Row 3/4 — status bar
-        tk.Frame(self.root, bg=C_BORDER, height=1).grid(row=3, column=0, sticky="ew")
         _use_gpu = self._settings.compute_device == "cuda"
         self._status_var = tk.StringVar(
             value=loading_status(
@@ -285,11 +299,13 @@ class TranscriptionApp:
                 _use_gpu,
             )
         )
+        self._status_card = make_card(self.root, bg=C_STATUS_BG, border=C_BORDER, padx=12, pady=8)
+        self._status_card.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 12))
         tk.Label(
-            self.root, textvariable=self._status_var,
-            anchor="w", padx=12, pady=5,
+            self._status_card, textvariable=self._status_var,
+            anchor="w",
             bg=C_STATUS_BG, fg=C_MUTED, font=F_SMALL,
-        ).grid(row=4, column=0, sticky="ew")
+        ).pack(fill=tk.X)
 
         self.root.config(cursor="watch")
 
@@ -342,6 +358,7 @@ class TranscriptionApp:
         """Re-render all static UI text in the active interface language."""
         self.root.title(t("window.title"))
         self._title_label.config(text=t("window.title"))
+        self._subtitle_label.config(text=t("status.ready", lang=self._settings.language))
         for menu, idx, key in self._menu_labels:
             menu.entryconfigure(idx, label=t(key))
         # Header labels

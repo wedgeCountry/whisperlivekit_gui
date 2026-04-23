@@ -18,6 +18,7 @@ C_BTN       = "#ffffff"
 C_BTN_H     = "#f1f5f9"
 C_STATUS_BG = "#f1f5f9"
 C_BUFFER    = "#94a3b8"
+C_INPUT     = "#fbfdff"
 
 # ── Typography ─────────────────────────────────────────────────────────────────
 F_UI    = ("TkDefaultFont", 10)
@@ -114,6 +115,61 @@ def apply_ttk_style(root: tk.Tk) -> None:
         "Modern.Vertical.TScrollbar",
         background=[("active", "#94a3b8"), ("pressed", "#64748b")],
         arrowcolor=[("active", "#475569")],
+    )
+
+
+def make_card(
+    parent: tk.Widget,
+    *,
+    bg: str = C_SURFACE,
+    border: str = C_BORDER,
+    padx: int = 0,
+    pady: int = 0,
+) -> tk.Frame:
+    return tk.Frame(
+        parent,
+        bg=bg,
+        highlightbackground=border,
+        highlightthickness=1,
+        bd=0,
+        padx=padx,
+        pady=pady,
+    )
+
+
+def style_text_widget(widget: tk.Text) -> None:
+    widget.configure(
+        bg=C_INPUT,
+        fg=C_TEXT,
+        insertbackground=C_TEXT,
+        selectbackground=C_ACCENT,
+        selectforeground="#ffffff",
+        relief=tk.FLAT,
+        bd=0,
+        highlightthickness=0,
+    )
+
+
+def style_scale_widget(widget: tk.Scale, *, trough: str = C_STATUS_BG) -> None:
+    widget.configure(
+        bg=C_SURFACE,
+        fg=C_TEXT,
+        troughcolor=trough,
+        activebackground=C_ACCENT,
+        sliderrelief=tk.FLAT,
+        sliderlength=18,
+        highlightbackground=C_SURFACE,
+        highlightcolor=C_SURFACE,
+        highlightthickness=0,
+    )
+    # Tk uses the widget background for the slider/thumb on some platforms, so
+    # give it a slightly darker neutral to keep it visible against white cards.
+    widget.configure(
+        bg="#cbd5e1",
+        activebackground="#94a3b8",
+        highlightthickness=0,
+        relief=tk.FLAT,
+        bd=0,
     )
 
 
