@@ -45,6 +45,7 @@ from .theme import (
     C_ACCENT, C_ACCENT_H, C_BG, C_BORDER, C_BUFFER, C_DANGER, C_DANGER_H,
     C_HEADER, C_INPUT, C_MUTED, C_STATUS_BG, C_SURFACE, C_TEXT,
     F_MONO, F_SMALL, apply_ttk_style, hoverable, make_btn, make_card,
+    set_button_enabled,
     style_text_widget,
 )
 
@@ -133,7 +134,7 @@ class TranscriptionApp:
                 bg=C_ACCENT, activebackground=C_ACCENT_H,
             )
             hoverable(self._record_btn, C_ACCENT, C_ACCENT_H)
-            self._clear_btn.config(state=tk.NORMAL)
+            set_button_enabled(self._clear_btn, True)
             self._text.config(state=tk.NORMAL)
             self._status_var.set(t("status.error", exc=exc))
             self._set_record_btn_state()
@@ -143,7 +144,7 @@ class TranscriptionApp:
         """Shut down the current manager and replace it with a fresh one."""
         self._mgr.shutdown()
         self._engine_ready = False
-        self._record_btn.config(state=tk.DISABLED)
+        set_button_enabled(self._record_btn, False)
         self._mgr = self._make_manager()
         self._mgr.mic_gain = self._settings.mic_gain
         if hasattr(self._mgr, "vad_silence_gap"):
@@ -280,7 +281,7 @@ class TranscriptionApp:
         btn_bar.columnconfigure((0, 1, 2, 3), weight=1)
 
         self._record_btn = make_btn(btn_bar, t("btn.record"), self._toggle_recording, primary=True)
-        self._record_btn.config(state=tk.DISABLED)
+        set_button_enabled(self._record_btn, False)
         self._record_btn.grid(row=0, column=0, padx=(12, 6))
 
         self._clear_btn = make_btn(btn_bar, t("btn.clear"),    self._clear_text)
@@ -317,8 +318,8 @@ class TranscriptionApp:
     def _set_record_btn_state(self) -> None:
         """Enable the record button only when engine is ready AND no session is draining."""
         if self._engine_ready and not self._session_draining:
-            self._record_btn.config(state=tk.NORMAL)
-            self._clear_btn.config(state=tk.NORMAL)
+            set_button_enabled(self._record_btn, True)
+            set_button_enabled(self._clear_btn, True)
 
     def _finalise_session(self) -> bool:
         """Called when a session finishes draining.
@@ -378,7 +379,7 @@ class TranscriptionApp:
         if self._recording:
             self._stop_recording()
         self._engine_ready = False
-        self._record_btn.config(state=tk.DISABLED)
+        set_button_enabled(self._record_btn, False)
         use_gpu = self._settings.compute_device == "cuda"
         self._status_var.set(loading_status(get_model_size(lang, self._settings.model_speed, use_gpu), lang, use_gpu))
         self.root.config(cursor="watch")
@@ -449,7 +450,7 @@ class TranscriptionApp:
             self._session_mgr    = SessionFileManager(wav_dir=SESSIONS_DIR, diff_dir=DIFF_DIR)
             self._mgr.audio_sink = self._session_mgr.write_chunk
 
-        self._clear_btn.config(state=tk.DISABLED)
+        set_button_enabled(self._clear_btn, False)
         self._text.config(state=tk.DISABLED)
         self._text.edit_reset()
         self._mgr.start_session()

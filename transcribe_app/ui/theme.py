@@ -10,12 +10,13 @@ C_HEADER    = "#ffffff"
 C_BORDER    = "#e2e8f0"
 C_TEXT      = "#1e293b"
 C_MUTED     = "#64748b"
-C_ACCENT    = "#3b82f6"
-C_ACCENT_H  = "#2563eb"
+C_ACCENT    = "#059ec4"
+C_ACCENT_H  = "#0487a7"
 C_DANGER    = "#ef4444"
 C_DANGER_H  = "#dc2626"
 C_BTN       = "#ffffff"
 C_BTN_H     = "#f1f5f9"
+C_DISABLED  = "#93bac4"
 C_STATUS_BG = "#f1f5f9"
 C_BUFFER    = "#94a3b8"
 C_INPUT     = "#fbfdff"
@@ -174,8 +175,37 @@ def style_scale_widget(widget: tk.Scale, *, trough: str = C_STATUS_BG) -> None:
 
 
 def hoverable(btn: tk.Button, normal: str, hover: str) -> None:
-    btn.bind("<Enter>", lambda _e: btn.config(bg=hover))
-    btn.bind("<Leave>", lambda _e: btn.config(bg=normal))
+    def _on_enter(_event) -> None:
+        if str(btn.cget("state")) != tk.DISABLED:
+            btn.config(bg=hover)
+
+    def _on_leave(_event) -> None:
+        if str(btn.cget("state")) != tk.DISABLED:
+            btn.config(bg=normal)
+
+    btn.bind("<Enter>", _on_enter)
+    btn.bind("<Leave>", _on_leave)
+
+
+def set_button_enabled(btn: tk.Button, enabled: bool) -> None:
+    if enabled:
+        normal = getattr(btn, "_normal_bg", C_BTN)
+        hover = getattr(btn, "_hover_bg", C_BTN_H)
+        btn.config(
+            state=tk.NORMAL,
+            bg=normal,
+            activebackground=hover,
+            cursor="hand2",
+        )
+        hoverable(btn, normal, hover)
+    else:
+        btn.config(
+            state=tk.DISABLED,
+            bg=C_DISABLED,
+            activebackground=C_DISABLED,
+            highlightbackground=C_DISABLED,
+            cursor="arrow",
+        )
 
 
 def make_btn(
@@ -197,10 +227,13 @@ def make_btn(
         parent, text=text, command=command,
         bg=bg, fg=fg,
         activebackground=hov, activeforeground=fg,
+        disabledforeground="#ffffff",
         font=F_UI, relief=tk.FLAT, bd=0,
         padx=20, pady=9, cursor="hand2",
         highlightbackground=C_BORDER,
         highlightthickness=1,
     )
+    btn._normal_bg = bg  # type: ignore[attr-defined]
+    btn._hover_bg = hov  # type: ignore[attr-defined]
     hoverable(btn, bg, hov)
     return btn
