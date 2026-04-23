@@ -57,9 +57,6 @@ class AlternativeEngineManager(EngineManagerProtocol):
         self._poll_stop:      threading.Event         = threading.Event()
         self._accumulated:    str                     = ""
 
-        # Protocol surface — mic_gain and audio_sink are not wired to the
-        # engine's internal audio path (the engine manages its own sounddevice
-        # stream), so these attributes exist for API compatibility only.
         self.mic_gain:        float                                   = 1.0
         self.audio_sink:      "Callable[[np.ndarray], None] | None"  = None
         self.vad_silence_gap: float                                   = 0.8
@@ -158,10 +155,13 @@ class AlternativeEngineManager(EngineManagerProtocol):
         self._on_open_mic()
 
     def _run_session(self) -> None:
+        self._engine.audio_sink = self.audio_sink
         try:
             self._engine.run()
         except Exception:
             _log.error("SpeechToTextEngine.run() raised", exc_info=True)
+        finally:
+            self._engine.audio_sink = None
 
     def _poll_results(self) -> None:
         """Forward completed segments to on_update; call on_finalise on exit."""

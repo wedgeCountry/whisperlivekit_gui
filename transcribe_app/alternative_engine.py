@@ -88,6 +88,9 @@ class SpeechToTextEngine:
         # thread-safe audio queue (callback → worker)
         self.audio_q: Queue = Queue(maxsize=cfg.queue_size)
 
+        # optional sink called with each int16 frame from the sounddevice callback
+        self.audio_sink = None  # Callable[[np.ndarray], None] | None
+
         # result queue — populated only in "queue" output mode
         self.result_queue: Queue = Queue()
 
@@ -130,6 +133,9 @@ class SpeechToTextEngine:
             log.warning(status)
 
         frame = (indata[:, 0] * 32768).astype(np.int16)
+
+        if self.audio_sink is not None:
+            self.audio_sink(frame)
 
         try:
             self.audio_q.put_nowait(frame)

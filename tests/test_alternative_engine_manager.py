@@ -252,3 +252,40 @@ class TestOpenMicStream:
     def test_is_noop(self):
         manager, _, _, _ = _make_manager()
         manager.open_mic_stream(device=0)  # should not raise or do anything
+
+
+# ── audio_sink wiring in _run_session() ───────────────────────────────────────
+
+class TestAudioSinkWiring:
+    def _run_session_sync(self, manager, fake_engine):
+        """Run _run_session in a thread, let run() return immediately."""
+        fake_engine.run = MagicMock()
+        manager._engine = fake_engine
+        t = threading.Thread(target=manager._run_session, daemon=True)
+        t.start()
+        t.join(timeout=1.0)
+
+    def test_audio_sink_propagated_to_engine(self):
+        manager, _, fake, _ = _make_manager()
+        sink = MagicMock()
+        manager.audio_sink = sink
+        self._run_session_sync(manager, fake)
+        fake.run.assert_called_once()
+        # audio_sink was set on the engine before run() was called
+        assert fake.audio_sink is None  # cleared in finally
+
+    def test_audio_sink_cleared_after_run(self):
+        manager, _, fake, _ = _make_manager()
+        manager.audio_sink = MagicMock()
+        self._run_session_sync(manager, fake)
+        assert fake.audio_sink is None
+
+    def test_audio_sink_cleared_even_on_exception(self):
+        manager, _, fake, _ = _make_manager()
+        manager.audio_sink = MagicMock()
+        fake.run = MagicMock(side_effect=RuntimeError("boom"))
+        manager._engine = fake
+        t = threading.Thread(target=manager._run_session, daemon=True)
+        t.start()
+        t.join(timeout=1.0)
+        assert fake.audio_sink is None

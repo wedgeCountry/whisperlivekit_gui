@@ -251,3 +251,24 @@ class TestAudioCallback:
         engine.audio_q.put_nowait(np.zeros(480, dtype=np.int16))  # fill queue
         # Should not raise
         engine.audio_callback(indata, 480, None, None)
+
+    def test_calls_audio_sink_when_set(self):
+        engine = _make_engine()
+        sink = MagicMock()
+        engine.audio_sink = sink
+        indata = np.ones((480, 1), dtype=np.float32) * 0.5
+        engine.audio_callback(indata, 480, None, None)
+        sink.assert_called_once()
+        frame = sink.call_args[0][0]
+        assert frame.dtype == np.int16
+        assert len(frame) == 480
+
+    def test_audio_sink_none_by_default(self):
+        engine = _make_engine()
+        assert engine.audio_sink is None
+
+    def test_no_sink_call_when_not_set(self):
+        engine = _make_engine()
+        indata = np.ones((480, 1), dtype=np.float32) * 0.5
+        # Should not raise when audio_sink is None
+        engine.audio_callback(indata, 480, None, None)
