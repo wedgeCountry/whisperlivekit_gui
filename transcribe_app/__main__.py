@@ -3,6 +3,45 @@ import logging
 import os
 import sys
 import tkinter as tk
+from pathlib import Path
+
+
+def _get_logo_path() -> Path | None:
+    """Return the best available path to the app logo."""
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent / "logo3.png")
+    candidates.append(Path(__file__).resolve().parent.parent / "logo3.png")
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _apply_app_icon(root: tk.Tk) -> None:
+    """Set the window/taskbar icon when logo.png is available."""
+    logo_path = _get_logo_path()
+    if logo_path is None:
+        return
+    try:
+        root._app_icon_image = tk.PhotoImage(file=str(logo_path))  # type: ignore[attr-defined]
+        root.iconphoto(True, root._app_icon_image)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
+def _apply_windows_app_id() -> None:
+    """Give the app a stable Windows AppUserModelID so the taskbar uses our icon."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "whisperlivekit.gui.transcribe_app"
+        )
+    except Exception:
+        pass
 
 
 def _get_work_area(root: tk.Tk) -> tuple[int, int, int, int]:
@@ -109,10 +148,14 @@ def main() -> None:
     logging.getLogger("whisperlivekit").setLevel(logging.WARNING)
     logging.getLogger("whisperlivekit.audio_processor").setLevel(logging.WARNING)
     delete_all_recording_artifacts()
+    _apply_windows_app_id()
     root = tk.Tk()
+    root.withdraw()
+    _apply_app_icon(root)
     TranscriptionApp(root)
     _apply_initial_window_geometry(root)
-    root.after(0, lambda: _apply_initial_window_geometry(root))
+    root.deiconify()
+    root.after(0, lambda: (_apply_app_icon(root), _apply_initial_window_geometry(root)))
     root.mainloop()
 
 

@@ -80,6 +80,7 @@ class TranscriptionApp:
         self._engine_ready:   bool          = False  # True once on_ready(True) arrives; False during reload
         self._session_draining: bool        = False  # True between stop_session() and _postprocess() completing
         self._pending_engine_action: "Callable[[], None] | None" = None  # deferred reload/recreate
+        self._header_logo: "tk.PhotoImage | None" = None
 
         self._mgr: EngineManagerProtocol = self._make_manager()
         if hasattr(self._mgr, "vad_silence_gap"):
@@ -158,6 +159,23 @@ class TranscriptionApp:
             self._settings.compute_device,
         )
 
+    def _attach_header_logo(self, parent: tk.Widget) -> None:
+        """Show a small version of the app icon in the header when available."""
+        logo_image = getattr(self.root, "_app_icon_image", None)
+        if logo_image is None:
+            return
+
+        width = max(1, int(logo_image.width()))
+        height = max(1, int(logo_image.height()))
+        scale = max(1, max((width + 27) // 28, (height + 27) // 28))
+        self._header_logo = logo_image.subsample(scale, scale)
+        tk.Label(
+            parent,
+            image=self._header_logo,
+            bg=C_HEADER,
+            bd=0,
+        ).pack(side=tk.LEFT, padx=(0, 10))
+
     # ── UI construction ────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -189,20 +207,26 @@ class TranscriptionApp:
         header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 8))
         header.columnconfigure(1, weight=1)
 
+        title_wrap = tk.Frame(header, bg=C_HEADER)
+        title_wrap.grid(row=0, column=0, rowspan=2, sticky="w")
+        self._attach_header_logo(title_wrap)
+
+        title_text = tk.Frame(title_wrap, bg=C_HEADER)
+        title_text.pack(side=tk.LEFT, anchor="w")
         self._title_label = tk.Label(
-            header, text=t("window.title"),
+            title_text, text=t("window.title"),
             bg=C_HEADER, fg=C_TEXT,
             font=("TkDefaultFont", 13, "bold"),
         )
-        self._title_label.grid(row=0, column=0, sticky="w")
+        self._title_label.pack(anchor="w")
         self._subtitle_label = tk.Label(
-            header,
+            title_text,
             text=t("status.ready", lang=self._settings.language),
             bg=C_HEADER,
             fg=C_MUTED,
             font=F_SMALL,
         )
-        self._subtitle_label.grid(row=1, column=0, sticky="w", pady=(3, 0))
+        self._subtitle_label.pack(anchor="w", pady=(3, 0))
 
         lang_frame = tk.Frame(header, bg=C_HEADER)
         lang_frame.grid(row=0, column=2, rowspan=2, padx=12, sticky="e")
