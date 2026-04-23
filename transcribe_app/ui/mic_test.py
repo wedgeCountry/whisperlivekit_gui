@@ -29,6 +29,17 @@ def _list_input_devices() -> list[tuple[int, str]]:
     return devices
 
 
+def _device_uses_wasapi(sd, device: int | None) -> bool:
+    try:
+        resolved = sd.default.device[0] if device is None else device
+        info = sd.query_devices(resolved, "input")
+        hostapi_index = info.get("hostapi")
+        hostapi_info = sd.query_hostapis(hostapi_index)
+        return "wasapi" in str(hostapi_info.get("name", "")).lower()
+    except Exception:
+        return False
+
+
 class MicTestWindow:
     BAR_W   = 420
     BAR_H   = 32
@@ -203,7 +214,7 @@ class MicTestWindow:
             samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
             blocksize=self.CHUNK, callback=_cb, device=device,
         )
-        if IS_WINDOWS:
+        if IS_WINDOWS and _device_uses_wasapi(sd, device):
             try:
                 self._stream = sd.InputStream(**kwargs, extra_settings=sd.WasapiSettings(exclusive=True))
                 self._stream.start()

@@ -223,6 +223,20 @@ class EngineManager(EngineManagerProtocol):
 
         return _callback
 
+    @staticmethod
+    def _device_uses_wasapi(sd, device: int | None) -> bool:
+        """Return True when *device* resolves to a WASAPI input device on Windows."""
+        try:
+            resolved = sd.default.device[0] if device is None else device
+            info = sd.query_devices(resolved, "input")
+            hostapi_index = info.get("hostapi")
+            hostapi_info = sd.query_hostapis(hostapi_index)
+            hostapi_name = str(hostapi_info.get("name", "")).lower()
+            return "wasapi" in hostapi_name
+        except Exception:
+            _log.warning("Could not determine Windows host API for input device", exc_info=True)
+            return False
+
     def open_mic_stream(
         self,
         device: int | None = None,
@@ -257,32 +271,39 @@ class EngineManager(EngineManagerProtocol):
         if stream_factory is not None:
             stream = stream_factory(**kwargs)
         elif IS_WINDOWS:
-            attempts: list[tuple[dict, dict, "Callable[[], None] | None"]] = [
-                (
-                    kwargs,
-                    {"extra_settings": sd.WasapiSettings(exclusive=True)},
-                    None,
-                ),
-                (
-                    kwargs,
-                    {},
-                    lambda: self._on_status(t("status.wasapi_shared")),
-                ),
-            ]
-            if device is not None:
-                default_kwargs = dict(kwargs, device=None)
+            attempts: list[tuple[dict, dict, "Callable[[], None] | None"]] = []
+            if self._device_uses_wasapi(sd, device):
                 attempts.extend([
                     (
-                        default_kwargs,
+                        kwargs,
                         {"extra_settings": sd.WasapiSettings(exclusive=True)},
                         None,
                     ),
                     (
-                        default_kwargs,
+                        kwargs,
                         {},
                         lambda: self._on_status(t("status.wasapi_shared")),
                     ),
                 ])
+            else:
+                attempts.append((kwargs, {}, None))
+            if device is not None:
+                default_kwargs = dict(kwargs, device=None)
+                if self._device_uses_wasapi(sd, None):
+                    attempts.extend([
+                        (
+                            default_kwargs,
+                            {"extra_settings": sd.WasapiSettings(exclusive=True)},
+                            None,
+                        ),
+                        (
+                            default_kwargs,
+                            {},
+                            lambda: self._on_status(t("status.wasapi_shared")),
+                        ),
+                    ])
+                else:
+                    attempts.append((default_kwargs, {}, None))
 
             last_exc: Exception | None = None
             stream = None

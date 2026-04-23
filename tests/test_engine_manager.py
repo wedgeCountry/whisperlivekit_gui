@@ -181,6 +181,8 @@ class TestOpenMicStream:
         sd = MagicMock()
         sd.WasapiSettings.return_value = object()
         sd.InputStream.side_effect = [exclusive_exc, shared_stream]
+        sd.query_devices.return_value = {"hostapi": 0}
+        sd.query_hostapis.return_value = {"name": "Windows WASAPI"}
 
         with patch("transcribe_app.engine_manager.IS_WINDOWS", True):
             with patch.dict("sys.modules", {"sounddevice": sd}):
@@ -204,6 +206,11 @@ class TestOpenMicStream:
             OSError("shared missing"),
             fallback_stream,
         ]
+        sd.query_devices.side_effect = [
+            {"hostapi": 0},
+            {"hostapi": 0},
+        ]
+        sd.query_hostapis.return_value = {"name": "Windows WASAPI"}
 
         with patch("transcribe_app.engine_manager.IS_WINDOWS", True):
             with patch.dict("sys.modules", {"sounddevice": sd}):
@@ -213,6 +220,27 @@ class TestOpenMicStream:
         fallback_stream.start.assert_called_once()
         third_call = sd.InputStream.call_args_list[2]
         assert third_call.kwargs["device"] is None
+
+    def test_windows_skips_wasapi_settings_for_non_wasapi_device(self):
+        manager = _make_manager()
+        manager._async_engine = MagicMock()
+        manager._async_engine.processor = MagicMock()
+        manager._loop = _fake_loop()
+
+        plain_stream = MagicMock()
+        sd = MagicMock()
+        sd.InputStream.return_value = plain_stream
+        sd.query_devices.return_value = {"hostapi": 1}
+        sd.query_hostapis.return_value = {"name": "MME"}
+
+        with patch("transcribe_app.engine_manager.IS_WINDOWS", True):
+            with patch.dict("sys.modules", {"sounddevice": sd}):
+                manager.open_mic_stream(device=3)
+
+        plain_stream.start.assert_called_once()
+        assert sd.WasapiSettings.call_count == 0
+        first_call = sd.InputStream.call_args_list[0]
+        assert "extra_settings" not in first_call.kwargs
 
 
 # ── stop_session() ────────────────────────────────────────────────────────────
