@@ -1,6 +1,7 @@
 """Compile-time constants. Nothing here depends on user settings or the UI."""
 
 import sys
+from pathlib import Path
 
 # ── OS detection ───────────────────────────────────────────────────────────────
 IS_WINDOWS: bool = sys.platform == "win32"
@@ -36,14 +37,15 @@ LANGUAGE_OPTS: dict[str, dict] = {
     "English": dict(
         # fast  → small (CPU) or medium (GPU)
         # normal→ medium (CPU) or large-v3-turbo (GPU)
-        model_sizes_cpu={"fast": "small.en",  "normal": "medium.en"},
-        model_sizes_gpu={"fast": "medium.en", "normal": "large-v3-turbo"},
+        # best  → large-v3-turbo (CPU) or large-v3 (GPU)
+        model_sizes_cpu={"fast": "small.en",  "normal": "medium.en", "best": "large-v3-turbo"},
+        model_sizes_gpu={"fast": "medium.en", "normal": "large-v3-turbo", "best": "large-v3"},
         fallback_model_size="small.en",
         lan="en",
     ),
     "Deutsch": dict(
-        model_sizes_cpu={"fast": "small",  "normal": "medium"},
-        model_sizes_gpu={"fast": "medium", "normal": "large-v3-turbo"},
+        model_sizes_cpu={"fast": "small",  "normal": "medium", "best": "large-v3-turbo"},
+        model_sizes_gpu={"fast": "medium", "normal": "large-v3-turbo", "best": "large-v3"},
         fallback_model_size="small",
         lan="de",
     ),
@@ -54,6 +56,19 @@ def get_model_size(lang: str, speed: str, use_gpu: bool = GPU) -> str:
     """Return the model-size string for the given language, speed ('fast'/'normal'), and device."""
     opts = LANGUAGE_OPTS[lang]
     return opts["model_sizes_gpu" if use_gpu else "model_sizes_cpu"][speed]
+
+# ── Application data directories ──────────────────────────────────────────────
+APP_DATA_DIR:     Path = (
+    Path.home() / "AppData" / "Roaming" / "transcribe_app"
+    if IS_WINDOWS
+    else Path.home() / ".config" / "transcribe_app"
+)
+SESSIONS_DIR:     Path = APP_DATA_DIR / "sessions"
+DIFF_DIR:         Path = APP_DATA_DIR / "diff"
+VAD_SNIPPETS_DIR: Path = APP_DATA_DIR / "vad_snippets"
+
+# ── Audio processing ───────────────────────────────────────────────────────────
+NOISE_GATE_RMS: float = 0.005   # ≈ −46 dBFS; frames quieter than this are zeroed
 
 DEFAULT_LANGUAGE = "Deutsch"
 

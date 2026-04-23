@@ -17,7 +17,6 @@ import contextlib
 import difflib
 import logging
 import queue
-import sys
 import threading
 import time
 import tkinter as tk
@@ -31,19 +30,10 @@ from ..session_file_manager import SessionFileManager
 
 _log = logging.getLogger(__name__)
 
-_SESSIONS_DIR = (
-    Path.home() / "AppData" / "Roaming" / "transcribe_app" / "sessions"
-    if sys.platform == "win32"
-    else Path.home() / ".config" / "transcribe_app" / "sessions"
+from transcribe_app.config import (
+    DIFF_DIR, LANGUAGE_OPTS, get_model_size, SAMPLE_RATE, SESSIONS_DIR,
+    SPACE_HOLD_TIME_MS, GPU, DTYPE,
 )
-
-_TRANSCRIPTION_DIFF_DIR = (
-    Path.home() / "AppData" / "Roaming" / "transcribe_app" / "diff"
-    if sys.platform == "win32"
-    else Path.home() / ".config" / "transcribe_app" / "diff"
-)
-
-from transcribe_app.config import LANGUAGE_OPTS, get_model_size, SPACE_HOLD_TIME_MS, GPU, SAMPLE_RATE, DTYPE
 from ..engine import loading_status
 from ..engine_protocol import EngineManagerProtocol, create_engine_manager
 from ..i18n import set_language, t
@@ -407,7 +397,7 @@ class TranscriptionApp:
         # Start audio capture for post-recording re-transcription (if enabled).
         if self._settings.asr_postprocess:
             from transcribe_app.session_file_manager import SessionFileManager  # noqa: PLC0415
-            self._session_mgr    = SessionFileManager(wav_dir=_SESSIONS_DIR, diff_dir=_TRANSCRIPTION_DIFF_DIR)
+            self._session_mgr    = SessionFileManager(wav_dir=SESSIONS_DIR, diff_dir=DIFF_DIR)
             self._mgr.audio_sink = self._session_mgr.write_chunk
 
         self._clear_btn.config(state=tk.DISABLED)

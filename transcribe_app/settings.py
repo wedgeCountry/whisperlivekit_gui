@@ -2,11 +2,11 @@
 
 import json
 import logging
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from transcribe_app.config import (
+    APP_DATA_DIR,
     DEFAULT_LANGUAGE,
     DEFAULT_PROMPTS,
     GPU,
@@ -16,12 +16,7 @@ from transcribe_app.i18n import UI_LANGUAGES
 
 _log = logging.getLogger(__name__)
 
-_CONFIG_DIR = (
-    Path.home() / "AppData" / "Roaming" / "transcribe_app"
-    if sys.platform == "win32"
-    else Path.home() / ".config" / "transcribe_app"
-)
-_SETTINGS_FILE = _CONFIG_DIR / "settings.json"
+_SETTINGS_FILE = APP_DATA_DIR / "settings.json"
 
 
 @dataclass(frozen=True)
@@ -36,6 +31,7 @@ class Settings:
     asr_postprocess:    bool           = False  # re-transcribe recording after session ends
     engine_type:        str            = "whisperlive"  # "whisperlive" | "faster_whisper"
     vad_silence_gap:    float          = 0.8    # seconds of silence before a new VAD segment is flushed (faster_whisper only)
+    vad_aggressiveness: int            = 2      # webrtcvad aggressiveness 0–3 (faster_whisper only)
 
 
 def _fill_prompts(raw: object) -> dict[str, str]:
@@ -65,7 +61,7 @@ def load(path: Path = _SETTINGS_FILE) -> Settings:
     input_device = int(raw_device) if isinstance(raw_device, (int, float)) else None
 
     raw_speed = data.get("model_speed", "normal")
-    model_speed = raw_speed if raw_speed in ("fast", "normal") else "normal"
+    model_speed = raw_speed if raw_speed in ("fast", "normal", "best") else "normal"
 
     raw_gain = data.get("mic_gain", 1.0)
     mic_gain = float(raw_gain) if isinstance(raw_gain, (int, float)) and 0.1 <= raw_gain <= 5.0 else 1.0
@@ -84,6 +80,9 @@ def load(path: Path = _SETTINGS_FILE) -> Settings:
     raw_silence = data.get("vad_silence_gap", 0.8)
     vad_silence_gap = float(raw_silence) if isinstance(raw_silence, (int, float)) and 0.1 <= raw_silence <= 10.0 else 0.8
 
+    raw_vad_agg = data.get("vad_aggressiveness", 2)
+    vad_aggressiveness = int(raw_vad_agg) if isinstance(raw_vad_agg, int) and 0 <= raw_vad_agg <= 3 else 2
+
     return Settings(
         language=lang,
         prompts=_fill_prompts(data.get("prompts")),
@@ -95,6 +94,7 @@ def load(path: Path = _SETTINGS_FILE) -> Settings:
         asr_postprocess=bool(data.get("asr_postprocess", False)),
         engine_type=engine_type,
         vad_silence_gap=vad_silence_gap,
+        vad_aggressiveness=vad_aggressiveness,
     )
 
 
@@ -114,6 +114,7 @@ def save(s: Settings, path: Path = _SETTINGS_FILE) -> None:
                     "asr_postprocess":    s.asr_postprocess,
                     "engine_type":        s.engine_type,
                     "vad_silence_gap":    s.vad_silence_gap,
+                    "vad_aggressiveness": s.vad_aggressiveness,
                 },
                 indent=2,
             ),

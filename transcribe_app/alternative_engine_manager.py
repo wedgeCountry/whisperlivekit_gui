@@ -12,24 +12,16 @@ Key differences from EngineManager (WhisperLiveKit):
 """
 
 import logging
-import sys
 import threading
-from pathlib import Path
 from queue import Empty
 from typing import Callable
 
 _log = logging.getLogger(__name__)
 
-from transcribe_app.config import GPU, LANGUAGE_OPTS, get_model_size
+from transcribe_app.config import GPU, LANGUAGE_OPTS, VAD_SNIPPETS_DIR, get_model_size
 from transcribe_app.engine import loading_status
 from transcribe_app.engine_protocol import EngineManagerProtocol
 from transcribe_app.i18n import t
-
-_SNIPPET_DIR: Path = (
-    Path.home() / "AppData" / "Roaming" / "transcribe_app" / "vad_snippets"
-    if sys.platform == "win32"
-    else Path.home() / ".config" / "transcribe_app" / "vad_snippets"
-)
 
 
 class AlternativeEngineManager(EngineManagerProtocol):
@@ -76,7 +68,7 @@ class AlternativeEngineManager(EngineManagerProtocol):
             output_mode   = "queue",
             silence_limit    = silence_gap,
             min_buffer_chunks= 8,
-            wav_snippet_dir  = str(_SNIPPET_DIR),
+            wav_snippet_dir  = str(VAD_SNIPPETS_DIR),
         )
 
     # ── Model loading ─────────────────────────────────────────────────────────

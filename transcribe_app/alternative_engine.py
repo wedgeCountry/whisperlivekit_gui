@@ -12,6 +12,11 @@ import numpy as np
 import sounddevice as sd
 import webrtcvad
 from faster_whisper import WhisperModel
+from scipy.signal import lfilter
+
+
+_HP_B = np.array([1.0, -1.0], dtype=np.float64)   # high-pass numerator
+_HP_A = np.array([1.0, -0.9975], dtype=np.float64) # high-pass denominator
 
 
 LANGUAGE_TRANSLATION = {
@@ -69,7 +74,7 @@ log = logging.getLogger("asr")
 # ENGINE
 # -----------------------------
 class SpeechToTextEngine:
-    def __init__(self, cfg: Config, *, model=None, vad=None):
+    def __init__(self, cfg: Config, *, model=None, vad=None, status_cb=None):
         self.cfg = cfg
 
         self.frame_size = int(cfg.sample_rate * cfg.frame_ms / 1000)
@@ -80,6 +85,9 @@ class SpeechToTextEngine:
             device=cfg.device,
             compute_type=cfg.compute_type,
         )
+        self._status_cb = status_cb
+        self._dc_zi        = np.zeros(1, dtype=np.float64)   # HP filter state
+        self._clip_warn_t  = 0.0                              # throttle timestamp
 
         # thread-safe audio queue (callback → worker)
         self.audio_q: Queue = Queue(maxsize=cfg.queue_size)
@@ -120,6 +128,11 @@ class SpeechToTextEngine:
                     q.get_nowait()
                 except Empty:
                     break
+        # ProactorEventLoop (Windows) cannot be restarted after loop.stop().
+        # Close the old loop and create a fresh one for the next session.
+        if not self.loop.is_closed():
+            self.loop.close()
+        self.loop = asyncio.new_event_loop()
 
     # -------------------------
     # CALLBACK (ZERO LOGIC)
