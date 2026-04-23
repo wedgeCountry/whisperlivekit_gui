@@ -57,6 +57,64 @@ def apply_ttk_style(root: tk.Tk) -> None:
         foreground=[("readonly", C_TEXT)],
         bordercolor=[("focus", C_ACCENT)],
     )
+    style.configure(
+        "Modern.TCombobox",
+        fieldbackground=C_SURFACE,
+        background=C_SURFACE,
+        foreground=C_TEXT,
+        bordercolor=C_BORDER,
+        lightcolor=C_BORDER,
+        darkcolor=C_BORDER,
+        arrowcolor=C_TEXT,
+        arrowsize=16,
+        padding=(10, 6),
+        relief="flat",
+    )
+    style.map(
+        "Modern.TCombobox",
+        fieldbackground=[("readonly", C_SURFACE)],
+        foreground=[("readonly", C_TEXT)],
+        bordercolor=[("focus", C_ACCENT), ("readonly", C_BORDER), ("disabled", C_BORDER)],
+        lightcolor=[("focus", C_ACCENT)],
+        darkcolor=[("focus", C_ACCENT)],
+        arrowcolor=[("disabled", C_MUTED)],
+    )
+    style.configure(
+        "Modern.TSpinbox",
+        fieldbackground=C_SURFACE,
+        background=C_SURFACE,
+        foreground=C_TEXT,
+        bordercolor=C_BORDER,
+        lightcolor=C_BORDER,
+        darkcolor=C_BORDER,
+        arrowsize=14,
+        padding=(8, 5),
+        relief="flat",
+    )
+    style.map(
+        "Modern.TSpinbox",
+        bordercolor=[("focus", C_ACCENT)],
+        lightcolor=[("focus", C_ACCENT)],
+        darkcolor=[("focus", C_ACCENT)],
+    )
+    style.configure(
+        "Modern.Vertical.TScrollbar",
+        background="#cbd5e1",
+        troughcolor=C_SURFACE,
+        bordercolor=C_SURFACE,
+        arrowcolor="#64748b",
+        darkcolor="#cbd5e1",
+        lightcolor="#cbd5e1",
+        relief="flat",
+        gripcount=0,
+        arrowsize=12,
+        width=10,
+    )
+    style.map(
+        "Modern.Vertical.TScrollbar",
+        background=[("active", "#94a3b8"), ("pressed", "#64748b")],
+        arrowcolor=[("active", "#475569")],
+    )
 
 
 def hoverable(btn: tk.Button, normal: str, hover: str) -> None:
