@@ -6,6 +6,10 @@
 #
 # This keeps DLLs/data next to the executable instead of packing everything
 # into one self-extracting file. It usually starts much faster than onefile.
+#
+# IMPORTANT: ship/install the whole dist/transcribe_app directory, not just
+# transcribe_app.exe. Tkinter needs _internal/_tcl_data and _internal/_tk_data
+# at runtime.
 
 from PyInstaller.utils.hooks import collect_all
 

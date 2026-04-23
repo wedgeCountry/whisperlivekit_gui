@@ -206,6 +206,27 @@ pyinstaller transcribe_app_windows.spec
 
 The binary is written to `dist\transcribe_app.exe` — no installer required.
 
+For the faster-starting onedir build:
+
+```bat
+pyinstaller transcribe_app_windows_onedir.spec
+```
+
+The app is written to `dist\transcribe_app\transcribe_app.exe`. When you
+zip it, upload it, or include it in an installer, include the whole
+`dist\transcribe_app` directory recursively. Do not install only
+`transcribe_app.exe`; the executable needs the sibling `_internal` directory,
+including `_internal\_tcl_data` and `_internal\_tk_data`, for Tkinter to start.
+
+If Windows shows an error like:
+
+```text
+Tcl data directory "...\\transcribe_app\\_internal\\_tcl_data" not found
+```
+
+the installed folder is incomplete. Rebuild with the onedir spec and reinstall
+the full `dist\transcribe_app` folder and allow Permissions "Vollzugriff" on windows.
+
 **Runtime dependencies on the target machine:**
 
 | Dependency | Notes |
@@ -244,6 +265,17 @@ jobs:
         with:
           name: transcribe_app-windows
           path: dist/transcribe_app.exe
+```
+
+For the onedir build, upload the directory instead:
+
+```yaml
+      - name: Build onedir
+        run: pyinstaller transcribe_app_windows_onedir.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transcribe_app-windows-onedir
+          path: dist/transcribe_app/**
 ```
 
 ## Development
