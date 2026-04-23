@@ -15,7 +15,6 @@ import asyncio
 import logging
 import sys
 import threading
-from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -24,6 +23,7 @@ _log = logging.getLogger(__name__)
 
 from transcribe_app.config import GPU, IS_WINDOWS, LANGUAGE_OPTS
 from transcribe_app.i18n import t
+from transcribe_app.model_status import loading_status
 
 _AudioProcessor:       object = None  # type: ignore[assignment]
 _TranscriptionEngine:  object = None  # type: ignore[assignment]
@@ -31,27 +31,6 @@ _WhisperLiveKitConfig: object = None  # type: ignore[assignment]
 
 
 # ── Model cache helpers ────────────────────────────────────────────────────────
-
-def _is_model_cached(model_size: str) -> bool:
-    hub = Path.home() / ".cache" / "huggingface" / "hub"
-    candidates = [
-        hub / f"models--Systran--faster-whisper-{model_size}",
-        hub / f"models--mobiuslabsgmbh--faster-whisper-{model_size}",
-    ]
-    try:
-        return any(
-            (d / "snapshots").is_dir() and any((d / "snapshots").iterdir())
-            for d in candidates
-        )
-    except OSError:
-        return False
-
-
-def loading_status(model_size: str, lang: str, use_gpu: bool = GPU) -> str:
-    device = "GPU" if use_gpu else "CPU"
-    key    = "status.loading" if _is_model_cached(model_size) else "status.downloading"
-    return t(key, model=model_size, lang=lang, device=device)
-
 
 # ── tqdm progress capture ──────────────────────────────────────────────────────
 

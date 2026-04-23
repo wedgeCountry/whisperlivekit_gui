@@ -1,11 +1,7 @@
-asyncio
-tkinter
 numpy
 torch
 whisperlivekit
 sounddevice
 language_tool_python
-pyinstaller
-pytest
 scipy
-webrtcvad # needs Microsoft Visual C++ 14.0 or greater to build on windows https://visualstudio.microsoft.com/de/visual-cpp-build-tools/
+webrtcvad  # needs Microsoft Visual C++ 14.0+ to build on Windows

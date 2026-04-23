@@ -24,8 +24,6 @@ from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, scrolledtext, ttk
 
-import numpy as np
-from scipy.io import wavfile
 from ..session_file_manager import SessionFileManager
 from ..recording_cleanup import start_async_recordings_cleanup
 
@@ -35,9 +33,9 @@ from transcribe_app.config import (
     DIFF_DIR, LANGUAGE_OPTS, get_model_size, SAMPLE_RATE, SESSIONS_DIR,
     SPACE_HOLD_TIME_MS, GPU, DTYPE,
 )
-from ..engine import loading_status
 from ..engine_protocol import EngineManagerProtocol, create_engine_manager
 from ..i18n import set_language, t
+from ..model_status import loading_status
 from .. import settings as settings_io
 from transcribe_app.settings import Settings
 from ..text_processing import apply_commands_full, clean, strip_prompt_leak
@@ -675,6 +673,9 @@ class TranscriptionApp:
 
     def _do_retranscribe(self, session_mgr: SessionFileManager, live_text: str) -> "str | None":
         """Background task: re-transcribe captured WAV files via the engine protocol and write a diff."""
+        import numpy as np
+        from scipy.io import wavfile
+
         prompt = self._settings.prompts[self._settings.language]
 
         parts: list[np.ndarray] = []

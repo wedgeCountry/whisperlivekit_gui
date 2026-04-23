@@ -19,7 +19,7 @@ from typing import Callable
 _log = logging.getLogger(__name__)
 
 from transcribe_app.config import GPU, LANGUAGE_OPTS, VAD_SNIPPETS_DIR, get_model_size
-from transcribe_app.engine import loading_status
+from transcribe_app.model_status import loading_status
 from transcribe_app.engine_protocol import EngineManagerProtocol
 from transcribe_app.i18n import t
 
