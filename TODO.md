@@ -12,9 +12,9 @@
 
 ## Indefinite hangs with no recovery path
 
-- [ ] **No timeout on WhisperLive `results_gen` loop** — `AsyncEngine._run_session()` iterates `async for front_data in results_gen:` with no timeout. If WhisperLiveKit's `AudioProcessor` hangs after receiving `process_audio(None)`, the generator never closes, `_on_finalise` never fires, and `_session_draining` stays `True` forever. The user cannot record again without restarting the app. (`engine.py:378`)
+- [x] **No timeout on WhisperLive `results_gen` loop** — `AsyncEngine._run_session()` iterates `async for front_data in results_gen:` with no timeout. If WhisperLiveKit's `AudioProcessor` hangs after receiving `process_audio(None)`, the generator never closes, `_on_finalise` never fires, and `_session_draining` stays `True` forever. The user cannot record again without restarting the app. (`engine.py:378`)
 
-- [ ] **Executor timeout leaves zombie thread** — `asyncio.wait_for(run_in_executor(...), timeout=...)` cancels the asyncio task but cannot stop the underlying thread. If model building or warmup deadlocks in a frozen exe, the thread runs indefinitely. The app shows an error and recovers, but the thread is unrecoverable until process exit. (`engine.py:247, 303`)
+- [x] **Executor timeout leaves zombie thread** — `asyncio.wait_for(run_in_executor(...), timeout=...)` cancels the asyncio task but cannot stop the underlying thread. If model building or warmup deadlocks in a frozen exe, the thread runs indefinitely. The app shows an error and recovers, but the thread is unrecoverable until process exit. (`engine.py:247, 303`)
 
 ## UI state bugs
 

@@ -205,6 +205,47 @@ class AsyncEngine:
             static_init_prompt=prompt if prompt.strip() else None,
         )
 
+    async def _run_in_daemon_thread(self, fn: Callable, timeout: float, name: str) -> object:
+        """Run fn in a daemon thread and await its result with a deadline.
+
+        asyncio.wait_for on run_in_executor cannot stop the underlying thread on
+        timeout, and ThreadPoolExecutor threads are non-daemon — the stdlib atexit
+        handler joins them, so a deadlocked model-build thread would hang process
+        exit.  A plain daemon thread is not registered with atexit, so the OS
+        terminates it when the main thread exits.  The asyncio side still cannot
+        unblock the thread, but process exit stays clean.
+        """
+        loop = self.loop
+        done = asyncio.Event()
+        _ret: list = [None, None]  # [result, exception]
+
+        def _target() -> None:
+            try:
+                _ret[0] = fn()
+            except BaseException as exc:  # noqa: BLE001
+                _ret[1] = exc
+            finally:
+                try:
+                    loop.call_soon_threadsafe(done.set)  # type: ignore[union-attr]
+                except RuntimeError:
+                    pass  # event loop already closed during shutdown
+
+        threading.Thread(target=_target, name=name, daemon=True).start()
+
+        try:
+            await asyncio.wait_for(done.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            _log.warning(
+                "%s timed out after %.0f s — the daemon thread continues running "
+                "until it unblocks or the process exits (Python cannot kill threads)",
+                name, timeout,
+            )
+            raise
+
+        if _ret[1] is not None:
+            raise _ret[1]  # type: ignore[misc]
+        return _ret[0]
+
     def _build_new_engine(self, size: str, lan: str, use_gpu: bool, prompt: str, my_gen: int) -> "object | None":
         """Construct a new TranscriptionEngine inside _exec_lock.
 
@@ -243,15 +284,14 @@ class AsyncEngine:
                 sys.stderr  = _TqdmCapture(self._on_status, orig_stderr)
 
         try:
-            _log.debug("starting executor: build_new_engine size=%s gpu=%s", model_size, use_gpu)
+            _log.debug("starting daemon thread: build_new_engine size=%s gpu=%s", model_size, use_gpu)
             maybe_capture_stderr(model_size)
-            engine = await asyncio.wait_for(
-                self.loop.run_in_executor(  # type: ignore[union-attr]
-                    None, lambda: self._build_new_engine(model_size, lan, use_gpu, prompt, my_gen),
-                ),
-                timeout=600.0,  # 10-minute cap; prevents frozen-exe deadlock hanging forever
+            engine = await self._run_in_daemon_thread(
+                lambda: self._build_new_engine(model_size, lan, use_gpu, prompt, my_gen),
+                timeout=600.0,
+                name="engine_build",
             )
-            _log.debug("executor finished: engine=%s", type(engine).__name__ if engine else None)
+            _log.debug("daemon thread finished: engine=%s", type(engine).__name__ if engine else None)
             if engine is None:
                 return None  # superseded inside the executor
             return engine
@@ -274,11 +314,10 @@ class AsyncEngine:
             ))
             try:
                 maybe_capture_stderr(fallback)
-                engine = await asyncio.wait_for(
-                    self.loop.run_in_executor(  # type: ignore[union-attr]
-                        None, lambda: self._build_new_engine(fallback, lan, use_gpu, prompt, my_gen),
-                    ),
+                engine = await self._run_in_daemon_thread(
+                    lambda: self._build_new_engine(fallback, lan, use_gpu, prompt, my_gen),
                     timeout=600.0,
+                    name="engine_build_fallback",
                 )
                 return engine  # None if superseded, engine otherwise
 
@@ -307,11 +346,10 @@ class AsyncEngine:
         device = "GPU" if use_gpu else "CPU"
         self._on_status(t("status.warmup", model=model_size, lang=lang, device=device))
         try:
-            await asyncio.wait_for(
-                self.loop.run_in_executor(  # type: ignore[union-attr]
-                    None, lambda: engine.asr.transcribe(_make_warmup_audio()),  # type: ignore[union-attr]
-                ),
+            await self._run_in_daemon_thread(
+                lambda: engine.asr.transcribe(_make_warmup_audio()),  # type: ignore[union-attr]
                 timeout=120.0,
+                name="engine_warmup",
             )
         except asyncio.TimeoutError:
             _log.warning("Warmup timed out after 120 s — skipping warmup; first inference will be slower")
@@ -387,8 +425,31 @@ class AsyncEngine:
         committed_text = ""
         last_partial   = ""
 
+        # Maximum time to wait for a single step of the results generator.
+        # WhisperLiveKit emits updates at chunk rate (≈ every 0.3–0.5 s during
+        # active recording), so 30 s without any yield indicates a real hang in
+        # AudioProcessor — most likely after process_audio(None) was sent and
+        # the processor never finished draining.  Breaking here lets
+        # _on_finalise fire and _session_draining reset so the user can record
+        # again without restarting the app.
+        _RESULTS_STEP_TIMEOUT = 30.0
+
         try:
-            async for front_data in results_gen:
+            while True:
+                try:
+                    front_data = await asyncio.wait_for(
+                        results_gen.__anext__(),
+                        timeout=_RESULTS_STEP_TIMEOUT,
+                    )
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    _log.warning(
+                        "results_gen step timed out after %.0f s — force-closing session",
+                        _RESULTS_STEP_TIMEOUT,
+                    )
+                    break
+
                 # A new session was started (or this task was cancelled) — stop
                 # updating the UI immediately so only one session drives the display.
                 if my_gen != self._session_gen:
