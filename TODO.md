@@ -18,9 +18,9 @@
 
 ## UI state bugs
 
-- [ ] **Deferred status-bar timers overwrite later messages** — `_copy_text()`, `_save_file()`, and `_load_file()` schedule `root.after()` callbacks that restore the status bar, but never save or cancel the callback ID. If re-transcription or an error is displayed within the timer window, the callback silently overwrites it with "Ready" or "Recording". (`ui/main_window.py:793, 812, 834`)
+- [x] **Deferred status-bar timers overwrite later messages** — `_copy_text()`, `_save_file()`, and `_load_file()` schedule `root.after()` callbacks that restore the status bar, but never save or cancel the callback ID. If re-transcription or an error is displayed within the timer window, the callback silently overwrites it with "Ready" or "Recording". (`ui/main_window.py:793, 812, 834`)
 
-- [ ] **`_on_close()` does not cancel pending `root.after()` callbacks** — the timers above (and any others) fire after `root.destroy()` and raise `TclError` on destroyed-widget access. Fix: store the after-IDs and cancel them in `_on_close()`. (`ui/main_window.py:926–928`)
+- [x] **`_on_close()` does not cancel pending `root.after()` callbacks** — the timers above (and any others) fire after `root.destroy()` and raise `TclError` on destroyed-widget access. Fix: store the after-IDs and cancel them in `_on_close()`. (`ui/main_window.py:926–928`)
 
 ## Logging / observability
 

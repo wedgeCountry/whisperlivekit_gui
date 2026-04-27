@@ -62,6 +62,7 @@ class TranscriptionApp:
         self._recording: bool       = False
         self._space_held: bool      = False   # push-to-talk state
         self._space_after_id: str | None = None  # pending 3-s timer
+        self._status_restore_id: str | None = None  # pending status-bar restore timer
         self._popup: tk.Toplevel | None = None  # at most one popup open at a time
         self._ui_queue: queue.Queue = queue.Queue()
 
@@ -791,15 +792,29 @@ class TranscriptionApp:
         self._session_prefix = ""
         self._session_suffix = ""
 
+    def _set_status_temp(self, msg: str, ms: int) -> None:
+        """Show msg in the status bar, then restore it after ms milliseconds.
+
+        Cancels any in-flight restore timer so rapid calls don't pile up and
+        a later message never gets silently overwritten by an earlier timer.
+        """
+        if self._status_restore_id is not None:
+            self.root.after_cancel(self._status_restore_id)
+        self._status_var.set(msg)
+        self._status_restore_id = self.root.after(ms, self._restore_status)
+
+    def _restore_status(self) -> None:
+        self._status_restore_id = None
+        self._status_var.set(
+            t("status.recording") if self._recording
+            else t("status.ready", lang=self._settings.language)
+        )
+
     def _copy_text(self) -> None:
         content = self._text.get("1.0", tk.END).strip()
         self.root.clipboard_clear()
         self.root.clipboard_append(content)
-        self._status_var.set(t("status.copied"))
-        self.root.after(2000, lambda: self._status_var.set(
-            t("status.recording") if self._recording
-            else t("status.ready", lang=self._settings.language)
-        ))
+        self._set_status_temp(t("status.copied"), 2000)
 
     # ── File menu ──────────────────────────────────────────────────────────────
 
@@ -814,11 +829,7 @@ class TranscriptionApp:
         if not path:
             return
         Path(path).write_text(text, encoding="utf-8")
-        self._status_var.set(t("status.saved", name=Path(path).name))
-        self.root.after(3000, lambda: self._status_var.set(
-            t("status.recording") if self._recording
-            else t("status.ready", lang=self._settings.language)
-        ))
+        self._set_status_temp(t("status.saved", name=Path(path).name), 3000)
 
     def _load_file(self) -> None:
         path = filedialog.askopenfilename(
@@ -836,11 +847,7 @@ class TranscriptionApp:
         self._last_display_sig    = ""
         self._last_text_time      = 0.0
         self._render_markdown()
-        self._status_var.set(t("status.loaded", name=Path(path).name))
-        self.root.after(3000, lambda: self._status_var.set(
-            t("status.recording") if self._recording
-            else t("status.ready", lang=self._settings.language)
-        ))
+        self._set_status_temp(t("status.loaded", name=Path(path).name), 3000)
 
     # ── Popup guard ────────────────────────────────────────────────────────────
 
@@ -930,5 +937,8 @@ class TranscriptionApp:
     # ── Shutdown ───────────────────────────────────────────────────────────────
 
     def _on_close(self) -> None:
+        for after_id in (self._space_after_id, self._status_restore_id):
+            if after_id is not None:
+                self.root.after_cancel(after_id)
         self._mgr.shutdown()
         self.root.destroy()
