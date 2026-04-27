@@ -89,18 +89,30 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 _UPX_EXCLUDE = [
-    # torch: UPX corrupts these DLLs.
+    # torch: UPX corrupts these DLLs (TLS-heavy or too large).
+    # Exact names verified against dist/transcribe_app/_internal/torch/lib/.
     'torch_cpu.dll',
     'torch_cuda.dll',
+    'torch.dll',
+    'torch_python.dll',
+    'torch_global_deps.dll',
+    'c10.dll',
     'cublas64_*.dll',
     'cudnn64_*.dll',
-    # ctranslate2 / openblas: UPX can cause OpenMP deadlock on init.
+    # ctranslate2 / OpenMP: UPX-compressed OpenMP DLLs cause a double-init
+    # deadlock on the first ctranslate2 call.  libiomp5md.dll is Intel OpenMP
+    # (shipped by both ctranslate2 and torch); the old libomp*.dll pattern
+    # did NOT match it (libi... vs libo...) — verified against dist.
     'ctranslate2.dll',
-    'openblas.dll',
-    'libopenblas*.dll',
-    'libgomp*.dll',
-    'libomp*.dll',
-    'vcomp*.dll',
+    'libiomp5md.dll',
+    'libiompstubs5md.dll',
+    'vcomp*.dll',           # MSVC OpenMP (sklearn ships vcomp140.dll)
+    # numpy / scipy: bundled OpenBLAS.  Actual filenames contain a hash suffix
+    # (e.g. libscipy_openblas64_-63c857e7....dll) so use a prefix wildcard.
+    'libscipy_openblas*.dll',
+    # onnxruntime: verified present in dist/transcribe_app/_internal/onnxruntime/capi/.
+    'onnxruntime.dll',
+    'onnxruntime_providers_shared.dll',
 ]
 
 exe = EXE(

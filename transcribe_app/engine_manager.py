@@ -36,6 +36,10 @@ def _pin_threads() -> None:
     Tkinter UI all compete for CPU.
     """
     import os
+    # HuggingFace tokenizers spawn parallel threads by default; in a frozen exe
+    # alongside ctranslate2 this can trigger the same OpenMP double-init deadlock
+    # that OMP_NUM_THREADS is meant to prevent.
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     if "OMP_NUM_THREADS" in os.environ:
         return
     import multiprocessing

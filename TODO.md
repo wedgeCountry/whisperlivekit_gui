@@ -30,9 +30,9 @@
 
 ## Packaging / spec
 
-- [ ] **`TOKENIZERS_PARALLELISM` not set** — HuggingFace tokenizers spawn parallel threads by default. In a frozen exe alongside ctranslate2, this can trigger the same OpenMP double-init deadlock that `OMP_NUM_THREADS` is meant to prevent. Add `os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")` to `_pin_threads()`. (`engine_manager.py:38–44`)
+- [x] **`TOKENIZERS_PARALLELISM` not set** — HuggingFace tokenizers spawn parallel threads by default. In a frozen exe alongside ctranslate2, this can trigger the same OpenMP double-init deadlock that `OMP_NUM_THREADS` is meant to prevent. Add `os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")` to `_pin_threads()`. (`engine_manager.py:38–44`)
 
-- [ ] **UPX exclude patterns for ctranslate2 DLLs are guesses** — the actual DLL names bundled by `ctranslate2` depend on the installed version. If they differ from the patterns in the spec, those DLLs still get UPX-compressed and can deadlock. After the first build, inspect `dist/transcribe_app/_internal/` and replace the pattern list with exact filenames. (`transcribe_app_windows_onedir.spec:91–104`)
+- [x] **UPX exclude patterns for ctranslate2 DLLs are guesses** — the actual DLL names bundled by `ctranslate2` depend on the installed version. If they differ from the patterns in the spec, those DLLs still get UPX-compressed and can deadlock. After the first build, inspect `dist/transcribe_app/_internal/` and replace the pattern list with exact filenames. (`transcribe_app_windows_onedir.spec:91–104`)
 
 ## Code quality / minor
 
