@@ -228,4 +228,6 @@ class AlternativeEngineManager(EngineManagerProtocol):
 
     def shutdown(self) -> None:
         self.stop_session()
+        if self._poll_thread is not None:
+            self._poll_thread.join(timeout=5.0)
         self._engine = None

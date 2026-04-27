@@ -243,10 +243,15 @@ class AsyncEngine:
                 sys.stderr  = _TqdmCapture(self._on_status, orig_stderr)
 
         try:
+            _log.debug("starting executor: build_new_engine size=%s gpu=%s", model_size, use_gpu)
             maybe_capture_stderr(model_size)
-            engine = await self.loop.run_in_executor(  # type: ignore[union-attr]
-                None, lambda: self._build_new_engine(model_size, lan, use_gpu, prompt, my_gen)
+            engine = await asyncio.wait_for(
+                self.loop.run_in_executor(  # type: ignore[union-attr]
+                    None, lambda: self._build_new_engine(model_size, lan, use_gpu, prompt, my_gen),
+                ),
+                timeout=600.0,  # 10-minute cap; prevents frozen-exe deadlock hanging forever
             )
+            _log.debug("executor finished: engine=%s", type(engine).__name__ if engine else None)
             if engine is None:
                 return None  # superseded inside the executor
             return engine
@@ -269,8 +274,11 @@ class AsyncEngine:
             ))
             try:
                 maybe_capture_stderr(fallback)
-                engine = await self.loop.run_in_executor(  # type: ignore[union-attr]
-                    None, lambda: self._build_new_engine(fallback, lan, use_gpu, prompt, my_gen)
+                engine = await asyncio.wait_for(
+                    self.loop.run_in_executor(  # type: ignore[union-attr]
+                        None, lambda: self._build_new_engine(fallback, lan, use_gpu, prompt, my_gen),
+                    ),
+                    timeout=600.0,
                 )
                 return engine  # None if superseded, engine otherwise
 
@@ -299,9 +307,14 @@ class AsyncEngine:
         device = "GPU" if use_gpu else "CPU"
         self._on_status(t("status.warmup", model=model_size, lang=lang, device=device))
         try:
-            await self.loop.run_in_executor(  # type: ignore[union-attr]
-                None, lambda: engine.asr.transcribe(_make_warmup_audio())  # type: ignore[union-attr]
+            await asyncio.wait_for(
+                self.loop.run_in_executor(  # type: ignore[union-attr]
+                    None, lambda: engine.asr.transcribe(_make_warmup_audio()),  # type: ignore[union-attr]
+                ),
+                timeout=120.0,
             )
+        except asyncio.TimeoutError:
+            _log.warning("Warmup timed out after 120 s — skipping warmup; first inference will be slower")
         except Exception:  # noqa: BLE001
             _log.warning("Warmup inference failed", exc_info=True)
 

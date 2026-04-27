@@ -267,10 +267,20 @@ class SpeechToTextEngine:
 
         self._save_wav(audio, sid)
 
-        asyncio.run_coroutine_threadsafe(
-            self.transcribe(audio, sid),
-            self.loop
-        )
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self.transcribe(audio, sid),
+                self.loop,
+            )
+        except RuntimeError:
+            # Loop was stopped between the VAD decision and here — skip async
+            # dispatch and run synchronously so the segment is not lost.
+            try:
+                text = self.transcribe_internal(audio.astype(np.float32) / 32768.0)
+                if text.strip():
+                    self._emit(text)
+            except Exception:
+                log.warning("Synchronous flush fallback transcription failed", exc_info=True)
 
     # -------------------------
     # ASYNC TRANSCRIPTION
@@ -351,6 +361,14 @@ class SpeechToTextEngine:
                 pass
             finally:
                 self.stop_event.set()
+                # Wait for the worker to finish its final flush before stopping
+                # the event loop.  Any async transcription tasks submitted by
+                # flush() during the session are already queued on the loop, and
+                # since transcribe() blocks the loop thread, they will finish in
+                # FIFO order before loop.stop() is processed.  This guarantees
+                # _poll_results sees a complete result_queue — so the record
+                # button is not re-enabled until all audio is transcribed.
+                self.flush_done.wait(timeout=10)
                 self.loop.call_soon_threadsafe(self.loop.stop)
                 loop_thread.join(timeout=5)
                 log.info("engine stopped")

@@ -366,7 +366,10 @@ class TranscriptionApp:
             return
         self._settings = replace(self._settings, language=lang)
         settings_io.save(self._settings)
-        self._reload_engine(lang)
+        if self._session_draining:
+            self._pending_engine_action = lambda: self._reload_engine(lang)
+        else:
+            self._reload_engine(lang)
 
     def _on_speed_change(self, _event=None) -> None:
         label = self._speed_var.get()
@@ -375,7 +378,10 @@ class TranscriptionApp:
             return
         self._settings = replace(self._settings, model_speed=speed)
         settings_io.save(self._settings)
-        self._reload_engine(self._settings.language)
+        if self._session_draining:
+            self._pending_engine_action = lambda: self._reload_engine(self._settings.language)
+        else:
+            self._reload_engine(self._settings.language)
 
     def _apply_ui_lang(self) -> None:
         """Re-render all static UI text in the active interface language."""

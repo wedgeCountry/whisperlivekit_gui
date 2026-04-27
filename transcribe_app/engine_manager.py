@@ -101,6 +101,7 @@ class EngineManager(EngineManagerProtocol):
         self._recording:    bool                             = False
         self._use_gpu:      bool                             = GPU
         self._started:      bool                             = False
+        self._flush_future: "asyncio.Future | None"          = None
 
         # mic_gain is written by the UI thread and read by the sounddevice callback
         # thread.  CPython's GIL makes float reads/writes atomic in practice, but
@@ -138,12 +139,14 @@ class EngineManager(EngineManagerProtocol):
             # Import WhisperLiveKit lazily so PortAudio / CUDA never block the
             # Tk window from opening.  Populate the lazy globals in engine.py
             # so AsyncEngine can reference them by name at call time.
+            _log.debug("importing whisperlivekit…")
             import transcribe_app.engine as _engine_mod  # noqa: PLC0415
             from whisperlivekit import AudioProcessor as AP, TranscriptionEngine as TE  # noqa: PLC0415
             from whisperlivekit.config import WhisperLiveKitConfig as WLC               # noqa: PLC0415
             _engine_mod._AudioProcessor       = AP
             _engine_mod._TranscriptionEngine  = TE
             _engine_mod._WhisperLiveKitConfig = WLC
+            _log.debug("whisperlivekit imported OK")
 
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
@@ -194,7 +197,7 @@ class EngineManager(EngineManagerProtocol):
             self._stream.close()  # type: ignore[union-attr]
             self._stream = None
         if self._async_engine is not None and self._async_engine.processor is not None:
-            asyncio.run_coroutine_threadsafe(
+            self._flush_future = asyncio.run_coroutine_threadsafe(
                 self._async_engine.processor.process_audio(None),  # type: ignore[union-attr]
                 self._loop,  # type: ignore[arg-type]
             )
@@ -367,6 +370,13 @@ class EngineManager(EngineManagerProtocol):
     def shutdown(self) -> None:
         """Release GPU memory and stop the background thread. Call from WM_DELETE_WINDOW."""
         self.stop_session()
+        flush = self._flush_future
+        self._flush_future = None
+        if flush is not None:
+            try:
+                flush.result(timeout=5.0)
+            except Exception:
+                pass
         if self._async_engine is not None:
             self._async_engine.release()
         if self._loop is not None and self._loop.is_running():

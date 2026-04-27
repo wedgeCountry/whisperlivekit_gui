@@ -127,10 +127,11 @@ def _fix_frozen_streams() -> None:
     are None.  Any code that writes to them (tqdm, logging, print) would crash with
     AttributeError.  Redirect both to a log file next to the executable so that
     tqdm progress bars and error messages are preserved for debugging.
+
+    Also installs a logging handler so that module-level _log.debug/info/warning
+    calls appear in the same file — useful for diagnosing loading hangs.
     """
     if not getattr(sys, "frozen", False):
-        return
-    if sys.stdout is not None and sys.stderr is not None:
         return
 
     try:
@@ -138,7 +139,6 @@ def _fix_frozen_streams() -> None:
         log_path = os.path.join(log_dir, "transcribe_app.log")
         log_file = open(log_path, "w", encoding="utf-8", buffering=1)
     except OSError:
-        # Fallback: discard all output rather than crash
         import io
         log_file = io.StringIO()  # type: ignore[assignment]
 
@@ -146,6 +146,15 @@ def _fix_frozen_streams() -> None:
         sys.stdout = log_file
     if sys.stderr is None:
         sys.stderr = log_file
+
+    # Wire up the Python logging system to the same file.
+    handler = logging.StreamHandler(log_file)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    ))
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.DEBUG)
 
 
 def main() -> None:

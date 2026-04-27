@@ -1,204 +1,45 @@
 # TODO
 
-Code review findings, ordered by severity.
+## Race conditions / correctness
 
----
+- [x] **Language/speed change bypasses drain guard** — `_on_language_change()` and `_on_speed_change()` call `_reload_engine()` without checking `_session_draining`. If the user changes language or speed immediately after clicking Stop while the session is still draining, a reload starts while the old session is still running. The settings dialog defers via `_pending_engine_action` but these two paths do not. (`ui/main_window.py:363–378`)
 
-## Bugs
+- [x] **`AlternativeEngineManager.shutdown()` races `_poll_results`** — `shutdown()` sets `self._engine = None` without joining `_poll_results` first. If the thread is between its `if self._engine is not None:` check and the `flush_done.wait()` call when `shutdown()` runs, `flush_done.wait()` is skipped, the queue is drained early, and `_on_finalise` fires with partial results. (`alternative_engine_manager.py:229–232`)
 
-### 1. Re-transcription blocks the UI thread
+- [x] **`SessionFileManager._open_wav()` appends path before file creation** — the path is added to `_wav_paths` before `wave.open()` is called. If `wave.open()` raises, a non-existent path remains in `wav_paths`; `_do_retranscribe` logs a warning and skips it, but the caller never knows the file was never created. Fix: append only after the file is successfully opened. (`session_file_manager.py:77–84`)
 
-`_postprocess()` is called from `_poll_ui()` on the Tk main thread. Inside it,
-`_do_retranscribe()` creates a fresh `SpeechToTextEngine` (loading the model),
-reads all WAV files, and runs full inference — potentially blocking for 10–60 s.
+- [x] **`EngineManager.stop_session()` final flush may be dropped on fast close** — `process_audio(None)` is sent via `run_coroutine_threadsafe` and the call returns immediately. If the user closes the window before the coroutine runs, `shutdown()` calls `cancel_pending_tasks()` and stops the loop first, silently dropping the final audio flush. (`engine_manager.py:196–200`)
 
-`_RETRANSCRIBE_TIMEOUT_S = 120`, the `_retranscribing` flag, and the
-imported-but-unused `concurrent.futures` are remnants of a previous design that
-ran this in a thread. `_on_retranscribe_done()` (`main_window.py:660–693`) is the
-old UI-thread callback — it is never called and is dead code.
+## Indefinite hangs with no recovery path
 
-**Fix:** move `_do_retranscribe` into a `ThreadPoolExecutor`, schedule the result
-back via `root.after(0, ...)`, delete `_on_retranscribe_done`, and remove the
-`concurrent.futures` import.
+- [ ] **No timeout on WhisperLive `results_gen` loop** — `AsyncEngine._run_session()` iterates `async for front_data in results_gen:` with no timeout. If WhisperLiveKit's `AudioProcessor` hangs after receiving `process_audio(None)`, the generator never closes, `_on_finalise` never fires, and `_session_draining` stays `True` forever. The user cannot record again without restarting the app. (`engine.py:378`)
 
----
+- [ ] **Executor timeout leaves zombie thread** — `asyncio.wait_for(run_in_executor(...), timeout=...)` cancels the asyncio task but cannot stop the underlying thread. If model building or warmup deadlocks in a frozen exe, the thread runs indefinitely. The app shows an error and recovers, but the thread is unrecoverable until process exit. (`engine.py:247, 303`)
 
-### 2. `main_window.py` bypasses the engine protocol abstraction
+## UI state bugs
 
-The docstring says the window delegates engine concerns to `EngineManagerProtocol`,
-but lines 33 and 629–631 directly import and instantiate the concrete
-`SpeechToTextEngine` and `Config` from `alternative_engine`:
+- [ ] **Deferred status-bar timers overwrite later messages** — `_copy_text()`, `_save_file()`, and `_load_file()` schedule `root.after()` callbacks that restore the status bar, but never save or cancel the callback ID. If re-transcription or an error is displayed within the timer window, the callback silently overwrites it with "Ready" or "Recording". (`ui/main_window.py:793, 812, 834`)
 
-```python
-from ..alternative_engine import Config, SpeechToTextEngine, LANGUAGE_TRANSLATION
-...
-engine = SpeechToTextEngine(asr_cfg)
-retranscribed = engine.transcribe_internal(audio)
-```
+- [ ] **`_on_close()` does not cancel pending `root.after()` callbacks** — the timers above (and any others) fire after `root.destroy()` and raise `TclError` on destroyed-widget access. Fix: store the after-IDs and cancel them in `_on_close()`. (`ui/main_window.py:926–928`)
 
-This hard-wires re-transcription to the VAD backend regardless of which engine is
-active. `EngineManagerProtocol.whisper_asr` exists precisely for post-session
-re-transcription — re-transcription should call through that property, not
-construct its own engine. Currently the feature silently does nothing when
-WhisperLive is selected.
+## Logging / observability
 
----
+- [ ] **`_TqdmCapture.isatty()` returns `True`, polluting the log file** — tqdm writes `\r`-prefixed progress lines. In the frozen-exe log file these appear as raw carriage-return characters, making the download-progress section unreadable. Override `isatty()` to return `False`, or strip `\r` in `write()`. (`engine.py:60`)
 
-### 3. Audio capture is silently broken for the `faster_whisper` backend
+- [ ] **Root logger set to `DEBUG` in frozen exe** — `_fix_frozen_streams()` sets the root logger level to `DEBUG`, making ctranslate2, faster-whisper, and sounddevice very verbose. The log file grows large quickly. Set root to `INFO` and apply `DEBUG` only to `transcribe_app.*` loggers. (`__main__.py:_fix_frozen_streams`)
 
-`SessionFileManager` is attached to `engine.audio_sink` for WAV capture, but
-`AlternativeEngineManager` explicitly documents that `audio_sink` is
-"API compatibility only" and not wired to the engine's audio path (the engine owns
-its own stream). WAV files are never written for `faster_whisper`, so
-`_do_retranscribe` finds an empty `session_mgr.wav_paths` and silently does
-nothing. Either wire the capture correctly for that backend or disable
-re-transcription for it with a user-visible message.
+## Packaging / spec
 
----
+- [ ] **`TOKENIZERS_PARALLELISM` not set** — HuggingFace tokenizers spawn parallel threads by default. In a frozen exe alongside ctranslate2, this can trigger the same OpenMP double-init deadlock that `OMP_NUM_THREADS` is meant to prevent. Add `os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")` to `_pin_threads()`. (`engine_manager.py:38–44`)
 
-### 4. `_do_retranscribe` reconstructs paths it already has, via a private attribute
+- [ ] **UPX exclude patterns for ctranslate2 DLLs are guesses** — the actual DLL names bundled by `ctranslate2` depend on the installed version. If they differ from the patterns in the spec, those DLLs still get UPX-compressed and can deadlock. After the first build, inspect `dist/transcribe_app/_internal/` and replace the pattern list with exact filenames. (`transcribe_app_windows_onedir.spec:91–104`)
 
-```python
-# main_window.py:638
-sr, chunk = load_wav_as_array(wav_filename=os.path.join(session_mgr._wav_dir, wav_path.name))
-```
+## Code quality / minor
 
-`wav_path` is already an absolute `Path` (set in `SessionFileManager._open_wav()`).
-The line accesses `session_mgr._wav_dir` (private) to reconstruct the same path.
-Replace with:
+- [ ] **`_postprocess()` docstring is outdated** — says *"the record button is re-enabled straight away with the live text visible"*, which was true in an older version. `_session_draining` now stays `True` during re-transcription, so the button is only re-enabled when re-transcription completes. (`ui/main_window.py:607`)
 
-```python
-sr, chunk = wavfile.read(wav_path)
-```
+- [ ] **Worker thread in `run_with_stream` is not joined** — `Thread(target=self.worker, daemon=True).start()` keeps no reference. The worker cannot be force-stopped or joined during shutdown. For a long-running process with many sessions, each session's worker thread must run to natural completion with no external control. (`alternative_engine.py:354`)
 
-While here: `load_wav_as_array` is a one-liner wrapper for `wavfile.read` sitting
-in `main_window.py` with no business there — inline it or move it to
-`session_file_manager.py`.
+- [ ] **Inconsistent flush timeouts** — `run_with_stream` waits 10 s for `flush_done` before stopping the event loop, but `_poll_results` waits up to 60 s for the same event. For a final speech segment whose transcription takes more than 10 s, the loop stops before the worker finishes; `_poll_results` still recovers via its own timeout, but the two values should be documented together to make the intent clear. (`alternative_engine.py:362–374`)
 
----
-
-### 5. `logging.basicConfig` runs at import time in `alternative_engine.py`
-
-Lines 65–69 call `logging.basicConfig(...)` at module scope. This fires the moment
-the module is imported (inside the background thread, after the window opens) and
-overrides any logging configuration set up by the application. Move the call into
-the `if __name__ == "__main__"` block at the bottom, which is where it belongs for
-a standalone-runnable module.
-
----
-
-## Design issues
-
-### 6. `Settings` is mutable despite being documented as immutable
-
-`@dataclass` without `frozen=True` means the "replaced, not mutated" contract is
-unenforced. Add `@dataclass(frozen=True)` to `settings.py` so the type checker and
-runtime catch accidental mutations.
-
----
-
-### 7. `apply_commands_full` returns `None` for "no change" — wrong API
-
-The `-> str | None` return forces every caller to write boilerplate:
-
-```python
-processed = apply_commands_full(clean(new_text))
-new_text_final = processed if processed is not None else new_text
-if processed is not None:
-    # redraw
-```
-
-The `None` sentinel encodes a UI concern (skip redraw) inside a pure text function.
-Change the return type to `str` (always return the result string). Callers that need
-to know whether anything changed can compare `result != original`.
-
----
-
-### 8. `strip_prompt_leak` compiles a regex on every call
-
-```python
-re.sub(re.escape(prompt), " ", text, flags=re.IGNORECASE)
-```
-
-Called twice per `_set_text()` invocation (every 50 ms during recording). The
-prompt never changes during a session. Cache the compiled pattern, e.g. with
-`@functools.lru_cache` keyed on the escaped prompt string.
-
----
-
-### 9. `_begin_write` / `_end_write` should be a context manager
-
-The enable/disable pair is called in 8 places. An exception between them leaves
-the widget permanently in the wrong state. Replace with a context manager:
-
-```python
-@contextlib.contextmanager
-def _write_ctx(self):
-    self._text.config(state=tk.NORMAL)
-    try:
-        yield
-    finally:
-        if self._recording:
-            self._text.config(state=tk.DISABLED)
-```
-
----
-
-### 10. Menu updates use fragile positional indices
-
-```python
-self._menubar.entryconfigure(0, label=t("menu.file"))
-self._menubar.entryconfigure(1, label=t("menu.edit"))
-self._file_menu.entryconfigure(0, label=t("menu.file.save"))
-```
-
-These break silently if menu items are reordered or new items are inserted. Store
-each menu item reference or use a small dict keyed by i18n key so `_apply_ui_lang`
-updates by name rather than by position.
-
----
-
-### 11. `vad_silence_gap` is not declared in `EngineManagerProtocol`
-
-`main_window.py` sets `self._mgr.vad_silence_gap = ...` unconditionally, but the
-attribute is absent from the protocol. For `EngineManager` (WhisperLive) this
-silently creates an orphaned instance attribute. Either add the attribute to the
-protocol with a no-op default, or gate the assignment with `isinstance`.
-
----
-
-### 12. `LANGUAGE_TRANSLATION` in `alternative_engine.py` is redundant
-
-```python
-LANGUAGE_TRANSLATION = {"Deutsch": "de", "English": "en"}
-```
-
-This mapping is imported into `main_window.py`. The same data already exists as
-`LANGUAGE_OPTS[lang]["lan"]` in `config.py`. Replace the usage in
-`main_window.py:625` with `LANGUAGE_OPTS[self._settings.language]["lan"]` and
-delete `LANGUAGE_TRANSLATION`.
-
----
-
-## Minor issues
-
-### 13. Ordinal voice commands miss start-of-text position
-
-All ordinal patterns require leading whitespace (`\s+\b`):
-
-```python
-re.compile(r"\s+\berstens\b[,.]?\s*", re.I)
-```
-
-`apply_commands_full("erstens")` — the ordinal spoken as the very first word —
-returns `None` with no match. Use `(?:^|\s+)` as the heading patterns already do.
-
----
-
-### 14. Platform-specific path constants are duplicated across modules
-
-`_SESSIONS_DIR` and `_TRANSCRIPTION_DIFF_DIR` in `main_window.py` and
-`_SNIPPET_DIR` in `alternative_engine_manager.py` are all derived from
-`%APPDATA%/transcribe_app/…` with the same platform switch. Define all app
-data paths once in `config.py` (or a dedicated `paths.py`) so a platform change
-is a single edit.
+- [ ] **10 pre-existing test failures in `test_text_processing.py`** — `clean()`, `apply_commands_full()`, and `strip_prompt_leak()` are exercised by these tests and used in the live display path. The failures hide any regressions introduced in that module and should be resolved.

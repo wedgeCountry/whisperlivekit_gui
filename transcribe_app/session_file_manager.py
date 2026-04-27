@@ -75,11 +75,11 @@ class SessionFileManager:
 
     def _open_wav(self) -> None:
         path = self._wav_path_for_index()
-        self._wav_paths.append(path)
         w = wave.open(str(path), "wb")
         w.setnchannels(CHANNELS)
         w.setsampwidth(2)       # int16 → 2 bytes/sample
         w.setframerate(SAMPLE_RATE)
+        self._wav_paths.append(path)  # only after successful open
         self._wav        = w
         self._file_start = time.monotonic()
 

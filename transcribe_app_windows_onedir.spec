@@ -14,18 +14,19 @@
 from PyInstaller.utils.hooks import collect_all
 
 # Collect all files (Python, data, DLLs) from heavy packages.
-datas_wlk, binaries_wlk, hiddenimports_wlk = collect_all('whisperlivekit')
-datas_fw,  binaries_fw,  hiddenimports_fw  = collect_all('faster_whisper')
-datas_ct2, binaries_ct2, hiddenimports_ct2 = collect_all('ctranslate2')
-datas_ort, binaries_ort, hiddenimports_ort = collect_all('onnxruntime')
-datas_app, binaries_app, hiddenimports_app = collect_all('transcribe_app')
+datas_wlk,  binaries_wlk,  hiddenimports_wlk  = collect_all('whisperlivekit')
+datas_fw,   binaries_fw,   hiddenimports_fw   = collect_all('faster_whisper')
+datas_ct2,  binaries_ct2,  hiddenimports_ct2  = collect_all('ctranslate2')
+datas_ort,  binaries_ort,  hiddenimports_ort  = collect_all('onnxruntime')
+datas_app,  binaries_app,  hiddenimports_app  = collect_all('transcribe_app')
+datas_wvad, binaries_wvad, hiddenimports_wvad = collect_all('webrtcvad')
 icon_datas = [('assets/app_icon.png', 'assets')]
 
 a = Analysis(
     ['transcribe_app/__main__.py'],
     pathex=['.'],
-    binaries=binaries_wlk + binaries_fw + binaries_ct2 + binaries_ort + binaries_app,
-    datas=datas_wlk + datas_fw + datas_ct2 + datas_ort + datas_app + icon_datas,
+    binaries=binaries_wlk + binaries_fw + binaries_ct2 + binaries_ort + binaries_app + binaries_wvad,
+    datas=datas_wlk + datas_fw + datas_ct2 + datas_ort + datas_app + datas_wvad + icon_datas,
     hiddenimports=[
         # Lazy imports in engine.py.
         'whisperlivekit',
@@ -67,8 +68,11 @@ a = Analysis(
         # Windows-specific: needed for sounddevice / PortAudio.
         'cffi',
         '_cffi_backend',
+        # VAD engine backend (alternative_engine.py).
+        'webrtcvad',
+        'wave',
     ] + hiddenimports_wlk + hiddenimports_fw + hiddenimports_ct2
-      + hiddenimports_ort + hiddenimports_app,
+      + hiddenimports_ort + hiddenimports_app + hiddenimports_wvad,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -84,6 +88,21 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+_UPX_EXCLUDE = [
+    # torch: UPX corrupts these DLLs.
+    'torch_cpu.dll',
+    'torch_cuda.dll',
+    'cublas64_*.dll',
+    'cudnn64_*.dll',
+    # ctranslate2 / openblas: UPX can cause OpenMP deadlock on init.
+    'ctranslate2.dll',
+    'openblas.dll',
+    'libopenblas*.dll',
+    'libgomp*.dll',
+    'libomp*.dll',
+    'vcomp*.dll',
+]
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -94,13 +113,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[
-        # Do not compress torch DLLs; UPX can corrupt them.
-        'torch_cpu.dll',
-        'torch_cuda.dll',
-        'cublas64_*.dll',
-        'cudnn64_*.dll',
-    ],
+    upx_exclude=_UPX_EXCLUDE,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -116,11 +129,6 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[
-        'torch_cpu.dll',
-        'torch_cuda.dll',
-        'cublas64_*.dll',
-        'cudnn64_*.dll',
-    ],
+    upx_exclude=_UPX_EXCLUDE,
     name='transcribe_app',
 )
